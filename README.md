@@ -111,10 +111,6 @@ Nigel Horne, `<njh at nigelhorne.com>`
 
 Nigel Horne
 
-# LICENSE
-
-Same terms as Perl itself.
-
 # REPOSITORY
 
 [https://github.com/nigelhorne/Syntax-Feature-With](https://github.com/nigelhorne/Syntax-Feature-With)

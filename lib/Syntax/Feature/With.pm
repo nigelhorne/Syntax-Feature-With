@@ -283,12 +283,6 @@ Only keys matching C</^[A-Za-z_]\w*$/> are eligible.
 
 Nigel Horne
 
-=head1 LICENSE
-
-Same terms as Perl itself.
-
-=cut
-
 =head1 REPOSITORY
 
 L<https://github.com/nigelhorne/Syntax-Feature-With>
