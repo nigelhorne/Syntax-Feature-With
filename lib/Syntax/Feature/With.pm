@@ -123,21 +123,30 @@ sub with {
 	my @args = @_;
 
 	# --------------------------------------------------------
-	# Parse flags
+	# Parse flags FIRST
 	# --------------------------------------------------------
 	my %opts = (
 		strict => 0,
 		debug  => 0,
 		trace  => 0,
+		rename => undef,
 	);
 
-	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+	while (@args && $args[0] =~ /^-(strict|debug|trace|rename)$/) {
 		my $flag = shift @args;
+
+		if ($flag eq '-rename') {
+			my $map = shift @args;
+			croak 'with(): -rename expects a hashref'
+				unless ref($map) eq 'HASH';
+			$opts{rename} = $map;
+			next;
+		}
+
 		$flag =~ s/^-//;
 		$opts{$flag} = 1;
 	}
 
-	# trace implies debug
 	$opts{debug} = 1 if $opts{trace};
 
 	# --------------------------------------------------------
@@ -145,20 +154,20 @@ sub with {
 	# --------------------------------------------------------
 	my ($href, $code) = @args;
 
-	croak 'with(): first argument must be a hashref' unless ref($href) eq 'HASH';
+	croak 'with(): first argument must be a hashref'
+		unless ref($href) eq 'HASH';
 
-	die "with(): second argument must be a coderef" unless ref($code) eq 'CODE';
+	croak 'with(): second argument must be a coderef'
+		unless ref($code) eq 'CODE';
 
 	# --------------------------------------------------------
 	# Trace: entering
 	# --------------------------------------------------------
 	$WITH_DEPTH++;
-	if ($opts{trace}) {
-		warn "[with depth=$WITH_DEPTH] entering with()";
-	}
+	warn "[with depth=$WITH_DEPTH] entering with()" if $opts{trace};
 
 	# --------------------------------------------------------
-	# Get closure pad of the coderef
+	# Get closure pad
 	# --------------------------------------------------------
 	my $closed = closed_over($code);
 	my %newpad = %$closed;
@@ -167,46 +176,41 @@ sub with {
 	# Process each hash key
 	# --------------------------------------------------------
 	KEY: for my $key (keys %$href) {
+		# Determine lexical name (possibly renamed)
+		my $lex = $opts{rename} && exists $opts{rename}{$key}
+				? $opts{rename}{$key}
+				: $key;
 
 		# Valid Perl identifier?
-		unless ($key =~ /^[A-Za-z_]\w*$/) {
-			warn "Ignored: $key (invalid identifier)" if $opts{debug};
+		unless ($lex =~ /^[A-Za-z_]\w*$/) {
+			warn "Ignored: $key (invalid identifier as $lex)" if $opts{debug};
 			next KEY;
 		}
 
-		my $var = '$' . $key;
+		my $var = '$' . $lex;
 
-		# Lexical declared in outer scope?
+		# Lexical declared?
 		unless (exists $newpad{$var}) {
 			if ($opts{strict}) {
-				die "with(): strict mode: lexical \$$key not declared in outer scope";
+				die "with(): strict mode: lexical \$$lex not declared in outer scope";
 			}
-			warn "Ignored: $key (no lexical declared)" if $opts{debug};
+			warn "Ignored: $key (no lexical \$$lex declared)" if $opts{debug};
 			next KEY;
 		}
 
-		# Alias lexical to hash slot
+		# Alias lexical to original hash slot
 		$newpad{$var} = \$href->{$key};
 
-		warn "Aliased: \$$key => \%hash{$key}" if $opts{debug};
+		warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
 	}
 
-	# --------------------------------------------------------
 	# Install modified pad
-	# --------------------------------------------------------
 	set_closed_over($code, \%newpad);
 
-	# --------------------------------------------------------
-	# Execute coderef
-	# --------------------------------------------------------
+	# Execute
 	my $result = $code->();
 
-	# --------------------------------------------------------
-	# Trace: leaving
-	# --------------------------------------------------------
-	if ($opts{trace}) {
-		warn "[with depth=$WITH_DEPTH] leaving with()";
-	}
+	warn "[with depth=$WITH_DEPTH] leaving with()" if $opts{trace};
 	$WITH_DEPTH--;
 
 	return $result;
@@ -415,7 +419,7 @@ C<with_hash> is the safe, friendly API.
 C<with> is the strict,
 low-level engine that powers it.
 
-=head3 Key Filtering: C<only> and C<except>
+=head3 Key Filtering: C<-only> and C<-except>
 
 C<with_hash> supports two optional flags that control which keys from the
 input hash are exposed as lexical aliases inside the block.
@@ -475,50 +479,151 @@ created.
 All validation errors are raised via C<Croak>, so error messages correctly
 report the caller's file and line number.
 
+=head3 -rename => { OLDKEY => NEWLEX, ... }
+
+The C<-rename> flag allows you to expose hash keys under different lexical
+variable names inside the C<with_hash> block.
+
+This is useful when the original hash keys are not valid Perl identifiers
+(e.g. contain hyphens), or when you want more convenient or descriptive
+lexical names.
+
+    with_hash
+        -rename => {
+            'http-status' => 'status',
+            'user_id'     => 'user',
+        },
+        \%hash,
+        sub {
+            say $status;   # alias to $hash{'http-status'}
+            say $user;     # alias to $hash{'user_id'}
+        };
+
+Renaming does B<not> copy values.  The new lexical name is aliased directly
+to the original hash slot, so write-through works as expected:
+
+    $status = 404;   # updates $hash{'http-status'}
+    $user   = 99;    # updates $hash{'user_id'}
+
+=head4 Interaction with filtering
+
+Renaming happens B<after> C<-only> / C<-except> filtering.  Filtering selects
+which keys are visible; renaming changes the lexical names of those keys.
+
+For example:
+
+    with_hash
+        -only   => [qw/http-status foo/],
+        -rename => { 'http-status' => 'status' },
+        \%hash,
+        sub {
+            say $status;   # ok
+            say $foo;      # ok
+            say $user;     # undef (not selected by -only)
+        };
+
+=head4 Interaction with strict mode
+
+When C<-strict> is enabled, every renamed lexical must be declared in the
+outer scope.  If a renamed lexical does not exist, C<with_hash> will croak:
+
+    my ($status);   # but NOT $missing_lex
+
+    with_hash
+        -strict,
+        -rename => { 'http-status' => 'missing_lex' },
+        \%hash,
+        sub { ... };
+
+This dies with:
+
+    strict mode: lexical $missing_lex not declared in outer scope
+
+=head4 Validity of new names
+
+The new lexical name must be a valid Perl identifier:
+
+    /^[A-Za-z_]\w*$/
+
+If the new name is invalid, the key is ignored (or causes an error under
+C<-strict>).
+
+=head4 Summary
+
+=over 4
+
+=item *
+Renames hash keys to different lexical variable names.
+
+=item *
+Write-through updates the original hash.
+
+=item *
+Works with C<-only> and C<-except>.
+
+=item *
+Respects C<-strict> (renamed lexicals must exist).
+
+=item *
+Does not copy values; aliases directly to the original storage.
+
+=back
+
 =cut
 
 sub with_hash {
 	my @args = @_;
 
-	# ------------------------------------------------------------
-	# 1. Extract boolean flags: -strict, -debug, -trace
-	# ------------------------------------------------------------
+	# 1. Boolean flags
 	my @flags;
 	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
 		push @flags, shift @args;
 	}
 
-	# ------------------------------------------------------------
-	# 2. Extract value-taking flags: -only, -except
-	# ------------------------------------------------------------
+	# 2. Value-taking flags: -only, -except, -rename
 	my ($only, $except);
 
-	while (@args && $args[0] =~ /^-(only|except)$/) {
-		my $flag = shift @args;
+	while (@args && $args[0] =~ /^-(only|except|rename)$/) {
+		my $flag  = shift @args;
 		my $value = shift @args;
 
-		croak "with_hash(): $flag expects an arrayref" unless ref($value) eq 'ARRAY';
+		if ($flag eq '-only' || $flag eq '-except') {
+			croak "with_hash(): $flag expects an arrayref"
+				unless ref($value) eq 'ARRAY';
 
-		if ($flag eq '-only')   { $only   = $value }
-		if ($flag eq '-except') { $except = $value }
+			$only   = $value if $flag eq '-only';
+			$except = $value if $flag eq '-except';
+			next;
+		}
+
+		if ($flag eq '-rename') {
+			croak "with_hash(): -rename expects a hashref"
+				unless ref($value) eq 'HASH';
+
+			push @flags, ($flag, $value);
+			next;
+		}
 	}
 
-	croak "with_hash(): cannot use both -only and -except" if $only && $except;
+	croak "with_hash(): cannot use both -only and -except"
+		if $only && $except;
 
-	# ------------------------------------------------------------
 	# 3. Extract coderef
-	# ------------------------------------------------------------
-	my $code = pop @args;
-	croak 'with_hash(): last argument must be a coderef' unless ref($code) eq 'CODE';
+	croak 'with_hash(): missing coderef'
+		unless @args;
 
-	# ------------------------------------------------------------
+	my $code = pop @args;
+
+	croak 'with_hash(): last argument must be a coderef'
+		unless ref($code) eq 'CODE';
+
 	# 4. Normalize hash argument
-	# ------------------------------------------------------------
 	my $href;
 
 	if (@args == 1 && ref($args[0]) eq 'HASH') {
 		$href = shift @args;
-	} else {
+	}
+	else {
 		if (@args >= 1 && ref($args[0]) eq 'HASH') {
 			croak 'with_hash(): hashref must be the only argument before coderef';
 		}
@@ -530,11 +635,7 @@ sub with_hash {
 		$href = \%h;
 	}
 
-	# ------------------------------------------------------------
-	# 5. Apply filtering BEFORE calling with(), by temporarily
-	#	removing keys from the original hash and restoring them
-	#	afterwards. This preserves aliasing to the real storage.
-	# ------------------------------------------------------------
+	# 5. Filtering (delete/restore)
 	my %removed;
 
 	if ($only || $except) {
@@ -544,7 +645,8 @@ sub with_hash {
 		my %keep;
 		if ($only) {
 			%keep = %only;
-		} elsif ($except) {
+		}
+		elsif ($except) {
 			%keep = map { $_ => 1 } grep { !$except{$_} } keys %$href;
 		}
 
@@ -555,17 +657,11 @@ sub with_hash {
 		}
 	}
 
-	# ------------------------------------------------------------
-	# 6. Call underlying engine
-	# ------------------------------------------------------------
-	my $result = with($href, $code, @flags);
+	# 6. Call underlying engine — FLAGS FIRST
+	my $result = with(@flags, $href, $code);
 
-	# ------------------------------------------------------------
 	# 7. Restore removed keys
-	# ------------------------------------------------------------
-	if (%removed) {
-		@$href{keys %removed} = values %removed;
-	}
+	@$href{keys %removed} = values %removed if %removed;
 
 	return $result;
 }
