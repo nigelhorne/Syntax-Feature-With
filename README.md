@@ -97,6 +97,171 @@ Syntactic sugar:
 
     with_hash %h => sub { ... };
 
+# COOKBOOK
+
+This section provides practical,
+ready-to.use patterns for common tasks
+using `with_hash` and `with`.
+Each example is self-contained and demonstrates a specific technique or flag combination.
+
+## Basic Aliasing
+
+Expose hash keys as lexicals inside a block:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash \%cfg, sub {
+        say "$host:$port";   # prints "localhost:3306"
+        $port = 3307;        # updates %cfg
+    };
+
+## Readonly Aliases
+
+Make lexicals read-only while still reflecting external changes:
+
+    my %cfg = ( retries => 3 );
+    my ($retries);
+
+    with_hash -readonly => \%cfg, sub {
+        say $retries;        # ok
+        $retries++;          # dies
+    };
+
+## Strict Mode (lexicals must exist)
+
+Require that every aliased key has a declared lexical:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash -strict => \%cfg, sub {
+        say $host;
+        say $port;
+    };
+
+If a lexical is missing, `-strict` throws an error before the block runs.
+
+## Strict Keys (keys must have lexicals)
+
+Require that every visible key has a corresponding lexical:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash -strict_keys => \%cfg, sub {
+        () = $host;   # ensure PadWalker sees it
+        () = $port;
+    };
+
+This is the inverse of `-strict`.
+
+## Renaming Keys
+
+Expose hash keys under different lexical names:
+
+    my %cfg = ( 'http-status' => 200, 'user_id' => 42 );
+    my ($status, $user);
+
+    with_hash
+        -rename => {
+            'http-status' => 'status',
+            'user_id'     => 'user',
+        },
+        \%cfg,
+        sub {
+            say $status;   # 200
+            say $user;     # 42
+        };
+
+## Filtering Keys with `-only`
+
+Expose only a subset of keys:
+
+    my %cfg = ( host => 'localhost', port => 3306, debug => 1 );
+    my ($host);
+
+    with_hash
+        -only => [qw/host/],
+        \%cfg,
+        sub {
+            say $host;   # ok
+            # $port and $debug are not aliased
+        };
+
+## Filtering Keys with `-except`
+
+Exclude specific keys:
+
+    my %cfg = ( host => 'localhost', port => 3306, debug => 1 );
+    my ($host, $port);
+
+    with_hash
+        -except => [qw/debug/],
+        \%cfg,
+        sub {
+            say $host;   # ok
+            say $port;   # ok
+            # $debug is not aliased
+        };
+
+## Combining Filtering and Renaming
+
+Filtering happens first, then renaming:
+
+    my %cfg = ( 'http-status' => 200, foo => 1, bar => 2 );
+    my ($status);
+
+    with_hash
+        -only   => [qw/http-status/],
+        -rename => { 'http-status' => 'status' },
+        \%cfg,
+        sub {
+            say $status;   # 200
+        };
+
+## Nested `with_hash` Blocks
+
+Each block gets its own aliasing environment:
+
+    my %outer = ( a => 1 );
+    my %inner = ( b => 2 );
+
+    my ($a, $b);
+
+    with_hash \%outer, sub {
+        say $a;   # 1
+
+        with_hash \%inner, sub {
+            say $b;   # 2
+        };
+
+        say $a;   # still 1
+    };
+
+## Using `with` Directly (Advanced)
+
+`with` is the low-level engine.
+Use it when you already have a validated
+hashref and want direct control:
+
+    my %cfg = ( x => 10, y => 20 );
+    my ($x, $y);
+
+    with \%cfg, sub {
+        $x += $y;
+    };
+
+## Forcing PadWalker to See a Lexical
+
+PadWalker only reports lexicals that the coderef actually closes over.
+To ensure a lexical is visible under `-strict_keys`, use:
+
+    () = $debug;
+
+This evaluates the variable in void context, ensuring that PadWalker
+treats it as closed over without warnings.
+
 ## with\_hash
 
     with_hash \%hash, sub {
@@ -401,6 +566,68 @@ If the new name is invalid, the key is ignored (or causes an error under
 - Works with `-only` and `-except`.
 - Respects `-strict` (renamed lexicals must exist).
 - Does not copy values; aliases directly to the original storage.
+
+### -strict\_keys
+
+    with_hash -strict_keys => \%hash, sub { ... };
+
+The `-strict_keys` flag enforces that every key in the input hash must have
+a corresponding lexical variable declared in the outer scope. If any key is
+missing a lexical, `with_hash` will croak before executing the block.
+
+This is the inverse of `-strict`, which enforces that every lexical must
+correspond to a hash key.
+
+Strict key checking happens after filtering and renaming, so only the keys
+that are actually exposed must be declared.
+
+    my ($host, $port);
+
+    with_hash
+        -strict_keys,
+        -rename => { host => 'h' },
+        \%config,
+        sub { ... };
+
+If `%config` contains a key that does not map to a declared lexical (after
+renaming), an error is thrown.
+
+This mode is useful for catching unexpected or misspelled keys in
+configuration hashes or user input.
+
+#### A note on `-strict_keys` and unused lexicals
+
+`-strict_keys` relies on ["closed\_over" in PadWalker](https://metacpan.org/pod/PadWalker#closed_over) to determine which
+lexical variables are visible to the coderef.  PadWalker only reports
+lexicals that the coderef actually closes over.  A lexical that is
+declared in the outer scope but never referenced inside the block is
+not considered "closed over" and therefore will not appear in the pad.
+
+This means that under `-strict_keys`, a declared lexical must be
+\*mentioned\* inside the block, otherwise it will be treated as missing:
+
+    my ($host, $port, $debug);
+
+    with_hash -strict_keys => \%cfg, sub {
+        say $host;   # ok
+        # $port is declared but unused - PadWalker does not report it
+        # $debug is declared but unused - also not reported
+    };
+
+The above will die with:
+
+    strict_keys mode: hash key 'port' has no lexical $port
+
+To force a lexical to be recognised without producing warnings, use the
+standard idiom:
+
+    () = $port;
+    () = $debug;
+
+This evaluates the variable in void context, ensuring that PadWalker
+treats it as closed over, without affecting program behaviour.
+
+This is a limitation of Perl's closure model rather than of this module.
 
 # AUTHOR
 

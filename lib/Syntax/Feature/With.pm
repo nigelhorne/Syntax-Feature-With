@@ -113,111 +113,270 @@ Syntactic sugar:
 
     with_hash %h => sub { ... };
 
+=head1 COOKBOOK
+
+This section provides practical,
+ready-to.use patterns for common tasks
+using C<with_hash> and C<with>.
+Each example is self-contained and demonstrates a specific technique or flag combination.
+
+=head2 Basic Aliasing
+
+Expose hash keys as lexicals inside a block:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash \%cfg, sub {
+        say "$host:$port";   # prints "localhost:3306"
+        $port = 3307;        # updates %cfg
+    };
+
+=head2 Readonly Aliases
+
+Make lexicals read-only while still reflecting external changes:
+
+    my %cfg = ( retries => 3 );
+    my ($retries);
+
+    with_hash -readonly => \%cfg, sub {
+        say $retries;        # ok
+        $retries++;          # dies
+    };
+
+=head2 Strict Mode (lexicals must exist)
+
+Require that every aliased key has a declared lexical:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash -strict => \%cfg, sub {
+        say $host;
+        say $port;
+    };
+
+If a lexical is missing, C<-strict> throws an error before the block runs.
+
+=head2 Strict Keys (keys must have lexicals)
+
+Require that every visible key has a corresponding lexical:
+
+    my %cfg = ( host => 'localhost', port => 3306 );
+    my ($host, $port);
+
+    with_hash -strict_keys => \%cfg, sub {
+        () = $host;   # ensure PadWalker sees it
+        () = $port;
+    };
+
+This is the inverse of C<-strict>.
+
+=head2 Renaming Keys
+
+Expose hash keys under different lexical names:
+
+    my %cfg = ( 'http-status' => 200, 'user_id' => 42 );
+    my ($status, $user);
+
+    with_hash
+        -rename => {
+            'http-status' => 'status',
+            'user_id'     => 'user',
+        },
+        \%cfg,
+        sub {
+            say $status;   # 200
+            say $user;     # 42
+        };
+
+=head2 Filtering Keys with C<-only>
+
+Expose only a subset of keys:
+
+    my %cfg = ( host => 'localhost', port => 3306, debug => 1 );
+    my ($host);
+
+    with_hash
+        -only => [qw/host/],
+        \%cfg,
+        sub {
+            say $host;   # ok
+            # $port and $debug are not aliased
+        };
+
+=head2 Filtering Keys with C<-except>
+
+Exclude specific keys:
+
+    my %cfg = ( host => 'localhost', port => 3306, debug => 1 );
+    my ($host, $port);
+
+    with_hash
+        -except => [qw/debug/],
+        \%cfg,
+        sub {
+            say $host;   # ok
+            say $port;   # ok
+            # $debug is not aliased
+        };
+
+=head2 Combining Filtering and Renaming
+
+Filtering happens first, then renaming:
+
+    my %cfg = ( 'http-status' => 200, foo => 1, bar => 2 );
+    my ($status);
+
+    with_hash
+        -only   => [qw/http-status/],
+        -rename => { 'http-status' => 'status' },
+        \%cfg,
+        sub {
+            say $status;   # 200
+        };
+
+=head2 Nested C<with_hash> Blocks
+
+Each block gets its own aliasing environment:
+
+    my %outer = ( a => 1 );
+    my %inner = ( b => 2 );
+
+    my ($a, $b);
+
+    with_hash \%outer, sub {
+        say $a;   # 1
+
+        with_hash \%inner, sub {
+            say $b;   # 2
+        };
+
+        say $a;   # still 1
+    };
+
+=head2 Using C<with> Directly (Advanced)
+
+C<with> is the low-level engine.
+Use it when you already have a validated
+hashref and want direct control:
+
+    my %cfg = ( x => 10, y => 20 );
+    my ($x, $y);
+
+    with \%cfg, sub {
+        $x += $y;
+    };
+
+=head2 Forcing PadWalker to See a Lexical
+
+PadWalker only reports lexicals that the coderef actually closes over.
+To ensure a lexical is visible under C<-strict_keys>, use:
+
+    () = $debug;
+
+This evaluates the variable in void context, ensuring that PadWalker
+treats it as closed over without warnings.
+
 =cut
 
 # ------------------------------------------------------------
 # with() — main entry point
 # ------------------------------------------------------------
 sub with {
-	my @args = @_;
+    my @args = @_;
 
-	# --------------------------------------------------------
-	# Parse flags FIRST
-	# --------------------------------------------------------
-	my %opts = (
-		strict => 0,
-		debug  => 0,
-		trace  => 0,
-		# rename => undef,
-	);
+    my %opts = (
+        strict      => 0,
+        debug       => 0,
+        trace       => 0,
+        rename      => undef,
+        readonly    => 0,
+        strict_keys => 0,
+    );
 
-	while (@args && $args[0] =~ /^-(strict|debug|trace|rename|readonly)$/) {
-		my $flag = shift @args;
+    while (@args && $args[0] =~ /^-(strict|debug|trace|rename|readonly|strict_keys)$/) {
+        my $flag = shift @args;
 
-		if ($flag eq '-rename') {
-			my $map = shift @args;
-			croak 'with(): -rename expects a hashref' unless ref($map) eq 'HASH';
+        if ($flag eq '-rename') {
+            my $map = shift @args;
+            croak 'with(): -rename expects a hashref'
+                unless ref($map) eq 'HASH';
+            $opts{rename} = $map;
+            next;
+        }
 
-			$opts{rename} = $map;
-			next;
-		}
+        $flag =~ s/^-//;
+        $opts{$flag} = 1;
+    }
 
-		$flag =~ s/^-//;
-		$opts{$flag} = 1;
-	}
+    $opts{debug} = 1 if $opts{trace};
 
-	$opts{debug} = 1 if $opts{trace};
+    my ($href, $code) = @args;
 
-	# --------------------------------------------------------
-	# Extract hashref + coderef
-	# --------------------------------------------------------
-	my ($href, $code) = @args;
+    croak 'with(): first argument must be a hashref'
+        unless ref($href) eq 'HASH';
 
-	croak 'with(): first argument must be a hashref'
-		unless ref($href) eq 'HASH';
+    croak 'with(): second argument must be a coderef'
+        unless ref($code) eq 'CODE';
 
-	croak 'with(): second argument must be a coderef'
-		unless ref($code) eq 'CODE';
+    $WITH_DEPTH++;
+    warn "[with depth=$WITH_DEPTH] entering with()" if $opts{trace};
 
-	# --------------------------------------------------------
-	# Trace: entering
-	# --------------------------------------------------------
-	$WITH_DEPTH++;
-	warn "[with depth=$WITH_DEPTH] entering with()" if $opts{trace};
+    my $closed = closed_over($code);
+    my %newpad = %$closed;
 
-	# --------------------------------------------------------
-	# Get closure pad
-	# --------------------------------------------------------
-	my $closed = closed_over($code);
-	my %newpad = %$closed;
+    # --------------------------------------------------------
+    # Process each hash key (aliasing)
+    # --------------------------------------------------------
+KEY: for my $key (keys %$href) {
 
-	# --------------------------------------------------------
-	# Process each hash key
-	# --------------------------------------------------------
-	KEY: for my $key (keys %$href) {
-		# Determine lexical name (possibly renamed)
-		my $lex = $opts{rename} && exists $opts{rename}{$key}
-				? $opts{rename}{$key}
-				: $key;
+    # Determine lexical name (after rename)
+    my $lex = $opts{rename} && exists $opts{rename}{$key}
+            ? $opts{rename}{$key}
+            : $key;
 
-		# Valid Perl identifier?
-		unless ($lex =~ /^[A-Za-z_]\w*$/) {
-			warn "Ignored: $key (invalid identifier as $lex)" if $opts{debug};
-			next KEY;
-		}
+    # Skip invalid identifiers
+    unless ($lex =~ /^[A-Za-z_]\w*$/) {
+        warn "Ignored: $key (invalid identifier as $lex)" if $opts{debug};
+        next KEY;
+    }
 
-		my $var = '$' . $lex;
+    my $var = '$' . $lex;
 
-		# Lexical declared?
-		unless (exists $newpad{$var}) {
-			if ($opts{strict}) {
-				die "with(): strict mode: lexical \$$lex not declared in outer scope";
-			}
-			warn "Ignored: $key (no lexical \$$lex declared)" if $opts{debug};
-			next KEY;
-		}
+    # strict_keys: every valid key must have a lexical
+    if ($opts{strict_keys} && !exists $newpad{$var}) {
+        die "with(): strict_keys mode: hash key '$key' has no lexical \$$lex";
+    }
 
-		# Alias lexical to original hash slot
-		if ($opts{readonly}) {
-			tie my $ro, 'Syntax::Feature::With::ReadonlyScalar', \$href->{$key};
-			$newpad{$var} = \$ro;
-		} else {
-			$newpad{$var} = \$href->{$key};
-		}
+    # strict: only keys that WOULD be aliased must have lexicals
+    unless (exists $newpad{$var}) {
+        if ($opts{strict}) {
+            die "with(): strict mode: lexical \$$lex not declared in outer scope";
+        }
+        warn "Ignored: $key (no lexical \$$lex declared)" if $opts{debug};
+        next KEY;
+    }
 
-		warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
-	}
+    # Alias
+    if ($opts{readonly}) {
+        tie my $ro, 'Syntax::Feature::With::ReadonlyScalar', \$href->{$key};
+        $newpad{$var} = \$ro;
+    } else {
+        $newpad{$var} = \$href->{$key};
+    }
 
-	# Install modified pad
-	set_closed_over($code, \%newpad);
+    warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
+}
 
-	# Execute
-	my $result = $code->();
+    set_closed_over($code, \%newpad);
 
-	warn "[with depth=$WITH_DEPTH] leaving with()" if $opts{trace};
-	$WITH_DEPTH--;
+    my $result = $code->();
 
-	return $result;
+    warn "[with depth=$WITH_DEPTH] leaving with()" if $opts{trace};
+    $WITH_DEPTH--;
+
+    return $result;
 }
 
 =head2 with_hash
@@ -590,6 +749,68 @@ Does not copy values; aliases directly to the original storage.
 
 =back
 
+=head3 -strict_keys
+
+    with_hash -strict_keys => \%hash, sub { ... };
+
+The C<-strict_keys> flag enforces that every key in the input hash must have
+a corresponding lexical variable declared in the outer scope. If any key is
+missing a lexical, C<with_hash> will croak before executing the block.
+
+This is the inverse of C<-strict>, which enforces that every lexical must
+correspond to a hash key.
+
+Strict key checking happens after filtering and renaming, so only the keys
+that are actually exposed must be declared.
+
+    my ($host, $port);
+
+    with_hash
+        -strict_keys,
+        -rename => { host => 'h' },
+        \%config,
+        sub { ... };
+
+If C<%config> contains a key that does not map to a declared lexical (after
+renaming), an error is thrown.
+
+This mode is useful for catching unexpected or misspelled keys in
+configuration hashes or user input.
+
+=head4 A note on C<-strict_keys> and unused lexicals
+
+C<-strict_keys> relies on L<PadWalker/closed_over> to determine which
+lexical variables are visible to the coderef.  PadWalker only reports
+lexicals that the coderef actually closes over.  A lexical that is
+declared in the outer scope but never referenced inside the block is
+not considered "closed over" and therefore will not appear in the pad.
+
+This means that under C<-strict_keys>, a declared lexical must be
+*mentioned* inside the block, otherwise it will be treated as missing:
+
+    my ($host, $port, $debug);
+
+    with_hash -strict_keys => \%cfg, sub {
+        say $host;   # ok
+        # $port is declared but unused - PadWalker does not report it
+        # $debug is declared but unused - also not reported
+    };
+
+The above will die with:
+
+    strict_keys mode: hash key 'port' has no lexical $port
+
+To force a lexical to be recognised without producing warnings, use the
+standard idiom:
+
+    () = $port;
+    () = $debug;
+
+This evaluates the variable in void context, ensuring that PadWalker
+treats it as closed over, without affecting program behaviour.
+
+This is a limitation of Perl's closure model rather than of this module.
+
 =cut
 
 sub with_hash {
@@ -597,7 +818,7 @@ sub with_hash {
 
 	# 1. Boolean flags
 	my @flags;
-	while (@args && $args[0] =~ /^-(strict|debug|trace|readonly)$/) {
+	while (@args && $args[0] =~ /^-(strict|debug|trace|readonly|strict_keys)$/) {
 		push @flags, shift @args;
 	}
 
