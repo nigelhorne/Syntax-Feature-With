@@ -2,219 +2,279 @@ package Syntax::Feature::With;
 
 use strict;
 use warnings;
+
 use Exporter 'import';
 use PadWalker qw(closed_over set_closed_over);
 
-our @EXPORT_OK = qw(with);
+our @EXPORT_OK = qw(with with_hash);
+
 our $VERSION = '0.01';
 
+# Track nested with() depth for trace/debug output
+my $WITH_DEPTH = 0;
+
+# ------------------------------------------------------------
+# with() — main entry point
+# ------------------------------------------------------------
+sub with {
+    my @args = @_;
+
+    # --------------------------------------------------------
+    # Parse flags
+    # --------------------------------------------------------
+    my %opts = (
+        strict => 0,
+        debug  => 0,
+        trace  => 0,
+    );
+
+    while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+        my $flag = shift @args;
+        $flag =~ s/^-//;
+        $opts{$flag} = 1;
+    }
+
+    # trace implies debug
+    $opts{debug} = 1 if $opts{trace};
+
+    # --------------------------------------------------------
+    # Extract hashref + coderef
+    # --------------------------------------------------------
+    my ($href, $code) = @args;
+
+    die "with(): first argument must be a hashref"
+        unless ref($href) eq 'HASH';
+
+    die "with(): second argument must be a coderef"
+        unless ref($code) eq 'CODE';
+
+    # --------------------------------------------------------
+    # Trace: entering
+    # --------------------------------------------------------
+    $WITH_DEPTH++;
+    if ($opts{trace}) {
+        warn "[with depth=$WITH_DEPTH] entering with()\n";
+    }
+
+    # --------------------------------------------------------
+    # Get closure pad of the coderef
+    # --------------------------------------------------------
+    my $closed = closed_over($code);
+    my %newpad = %$closed;
+
+    # --------------------------------------------------------
+    # Process each hash key
+    # --------------------------------------------------------
+    KEY:
+    for my $key (keys %$href) {
+
+        # Valid Perl identifier?
+        unless ($key =~ /^[A-Za-z_]\w*$/) {
+            warn "Ignored: $key (invalid identifier)\n" if $opts{debug};
+            next KEY;
+        }
+
+        my $var = '$' . $key;
+
+        # Lexical declared in outer scope?
+        unless (exists $newpad{$var}) {
+            if ($opts{strict}) {
+                die "with(): strict mode: lexical \$$key not declared in outer scope";
+            }
+            warn "Ignored: $key (no lexical declared)\n" if $opts{debug};
+            next KEY;
+        }
+
+        # Alias lexical to hash slot
+        $newpad{$var} = \$href->{$key};
+
+        warn "Aliased: \$$key → \%hash{$key}\n" if $opts{debug};
+    }
+
+    # --------------------------------------------------------
+    # Install modified pad
+    # --------------------------------------------------------
+    set_closed_over($code, \%newpad);
+
+    # --------------------------------------------------------
+    # Execute coderef
+    # --------------------------------------------------------
+    my $result = $code->();
+
+    # --------------------------------------------------------
+    # Trace: leaving
+    # --------------------------------------------------------
+    if ($opts{trace}) {
+        warn "[with depth=$WITH_DEPTH] leaving with()\n";
+    }
+    $WITH_DEPTH--;
+
+    return $result;
+}
+
+# ------------------------------------------------------------
+# with_hash() — convenience wrapper
+# ------------------------------------------------------------
+sub with_hash {
+    my @args = @_;
+
+    # Extract flags
+    my @flags;
+    while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+        push @flags, shift @args;
+    }
+
+    # Last argument must be a coderef
+    my $code = pop @args;
+    die "with_hash(): last argument must be a coderef"
+        unless ref($code) eq 'CODE';
+
+    # Next argument may be a hashref OR a hash list
+    my $href;
+
+    if (@args == 1 && ref($args[0]) eq 'HASH') {
+        # Case: with_hash \%h, sub { ... }
+        $href = shift @args;
+    }
+    else {
+        # Case: with_hash %h => sub { ... }
+        # or with_hash -flags => %h => sub { ... }
+        my %h = @args;   # safe: @args now excludes coderef
+        $href = \%h;
+    }
+
+    return with(@flags, $href, $code);
+}
+
+
+1;
+
+__END__
+
 =head1 NAME
 
-Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
-
-=head1 NAME
-
-Syntax::Feature::With - Lightweight lexical aliasing into a coderef using PadWalker
+Syntax::Feature::With - Lightweight lexical aliasing with strict/debug/trace modes
 
 =head1 SYNOPSIS
 
-    use Syntax::Feature::With qw(with);
+    use Syntax::Feature::With qw(with with_hash);
 
-    my %h = ( a => 'b', x => 42 );
+    my %h = ( a => 1, b => 2 );
+    my ($a, $b);
 
-    # Lexicals must be declared in the outer scope
-    my ($a, $x);
+    # Basic usage
+    with \%h, sub {
+        say $a;   # 1
+        $b = 99;  # updates %h
+    };
 
-    with(\%h, sub {
-        print "$a\n";   # prints "b"
-        print "$x\n";   # prints "42"
+    # Strict mode
+    with -strict => \%h, sub {
+        say $a;   # ok
+        say $b;   # ok
+        say $c;   # error: undeclared
+    };
 
-        $a = 'changed'; # writes back into %h
-    });
+    # Debug mode
+    with -debug => \%h, sub {
+        ...
+    };
 
-    say $h{a};          # "changed"
+    # Trace mode (includes debug)
+    with -trace => \%h, sub {
+        ...
+    };
+
+    # Convenience wrapper
+    with_hash %h => sub {
+        say $a;
+    };
 
 =head1 DESCRIPTION
 
 C<with()> provides a simple, predictable way to temporarily alias hash
-keys into lexical variables inside a coderef. It is intentionally small,
-pure-Perl, and implemented using L<PadWalker>.
+keys into lexical variables inside a coderef. It is implemented using
+L<PadWalker> and requires no XS, no parser hooks, and no syntax changes.
 
-This module does B<not> introduce new syntax. Instead, it gives you a
-clean functional interface:
+=head1 FEATURES
 
-    with(\%hash, sub { ... });
+=head2 Read/write aliasing
 
-Inside the coderef, selected lexicals become read/write aliases to the
-corresponding hash entries.
+Lexicals declared in the outer scope become aliases to hash entries:
 
-=head1 HOW IT WORKS
+    my ($a);
+    with \%h, sub { $a = 10 };   # updates $h{a}
 
-C<with()> inspects the coderef's lexical pad using PadWalker. For each
-valid hash key:
+=head2 Strict mode
 
-=over 4
+    with -strict => \%h, sub { ... };
 
-=item *
+Every valid hash key must have a matching lexical declared in the outer
+scope. Missing lexicals cause an immediate error.
 
-If a lexical of the same name (e.g. C<$a> for key C<a>) exists in the
-coderef's closure pad, it is replaced with a reference to the hash slot.
+=head2 Debug mode
 
-=item *
+    with -debug => \%h, sub { ... };
 
-Assignments to that lexical write back into the hash.
+Prints a summary of aliasing decisions:
 
-=item *
+    Aliased: $a -> %hash{a}
+    Ignored: foo-bar (invalid identifier)
+    Ignored: y (no lexical declared)
 
-Reads from that lexical read from the hash.
+=head2 Trace mode
 
-=back
+    with -trace => \%h, sub { ... };
 
-Because PadWalker can only modify lexicals that already exist in the
-coderef's closure pad, you must declare the lexicals in the outer scope:
+Shows entry/exit and nesting depth:
 
-    my ($a, $b);
-    with(\%h, sub { ... });
+    [with depth=1] entering with()
+    Aliased: $a -> %hash{a}
+    [with depth=1] leaving with()
 
-Declaring them inside the coderef will not work.
+Trace mode implies debug mode.
 
-=head1 USAGE
+=head2 Nested with() support
 
-=head2 with(\%hash, sub { ... })
+Nested calls work naturally:
 
-The first argument must be a hash reference.  
-The second argument must be a coderef.
+    with \%h1, sub {
+        with \%h2, sub {
+            ...
+        };
+    };
 
-Example:
+=head2 with_hash wrapper
 
-    my %h = ( foo => 1, bar => 2 );
-    my ($foo, $bar);
+Syntactic sugar:
 
-    with(\%h, sub {
-        $foo++;     # updates $h{foo}
-        $bar = 99;  # updates $h{bar}
-    });
-
-=head1 VALID IDENTIFIERS
-
-Only hash keys matching:
-
-    /^[A-Za-z_]\w*$/
-
-are considered valid Perl identifiers and eligible for aliasing.
-
-All others are silently ignored.
-
-=head1 UNDECLARED LEXICALS
-
-If a lexical is not declared in the outer scope, it is B<not> created or
-aliased. It simply remains C<undef> inside the coderef.
-
-Example:
-
-    my %h = ( a => 123 );
-
-    with(\%h, sub {
-        say $a;   # undef, not aliased
-    });
-
-This behaviour is intentional and avoids surprising magic.
-
-=head1 RETURN VALUE
-
-C<with()> returns whatever the coderef returns.
-
-=head1 ERROR HANDLING
-
-C<with()> will throw an exception if:
-
-=over 4
-
-=item *
-
-The first argument is not a hash reference.
-
-=item *
-
-The second argument is not a coderef.
-
-=back
-
-All other behaviour is strict-mode friendly and predictable.
+    with_hash %h => sub { ... };
 
 =head1 LIMITATIONS
 
-This module is intentionally simple. It does B<not>:
-
 =over 4
 
 =item *
 
-create new lexicals inside the coderef
+Lexicals must be declared in the outer scope.
 
 =item *
 
-alias array elements or object attributes
+Only hashrefs are supported.
 
 =item *
 
-introduce new syntax
-
-=item *
-
-rewrite Perl code or manipulate the optree
+Only keys matching C</^[A-Za-z_]\w*$/> are eligible.
 
 =back
 
-If you need deeper integration (keywords, syntax, chained method
-aliasing, etc.), you will need an XS-based keyword module.
-
-
-=cut
-
-sub with {
-    my ($hashref, $code) = @_;
-
-    die "with: first argument must be a hashref"
-        unless ref($hashref) eq 'HASH';
-
-    die "with: second argument must be a coderef"
-        unless ref($code) eq 'CODE';
-
-    # Get the coderef’s lexical pad
-    my $closed = closed_over($code);
-
-    # Copy it so we can modify it
-    my %new = %$closed;
-
-    # For each valid key, alias the lexical
-    for my $key (keys %$hashref) {
-        next unless $key =~ /^[A-Za-z_]\w*$/;   # valid Perl identifier
-        my $var = '$' . $key;
-        next unless exists $new{$var};          # only alias declared lexicals
-        $new{$var} = \$hashref->{$key};         # alias
-    }
-
-    # Install the modified pad
-    set_closed_over($code, \%new);
-
-    # Execute the coderef
-    return $code->();
-}
-
-=head1 SEE ALSO
-
-L<PadWalker>, L<Sub::Util>, L<Lexical::Alias>
-
 =head1 AUTHOR
 
-Nigel Horne <njh@nigelhorne.com>
+Nigel Horne
 
 =head1 LICENSE
 
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
+Same terms as Perl itself.
 
 =cut
 
-1;
