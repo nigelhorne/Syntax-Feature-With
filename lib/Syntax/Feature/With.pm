@@ -164,8 +164,7 @@ sub with {
 	# --------------------------------------------------------
 	# Process each hash key
 	# --------------------------------------------------------
-	KEY:
-	for my $key (keys %$href) {
+	KEY: for my $key (keys %$href) {
 
 		# Valid Perl identifier?
 		unless ($key =~ /^[A-Za-z_]\w*$/) {
@@ -225,17 +224,15 @@ sub with_hash {
 
 	# Last argument must be a coderef
 	my $code = pop @args;
-	die "with_hash(): last argument must be a coderef"
-		unless ref($code) eq 'CODE';
+	die 'with_hash(): last argument must be a coderef' unless ref($code) eq 'CODE';
 
 	my $href;
 
-	# Case 1: with_hash \%h, sub { ... }
 	if (@args == 1 && ref($args[0]) eq 'HASH') {
+		# Case 1: with_hash \%h, sub { ... }
 		$href = shift @args;
-	}
-	# Case 2: with_hash %h => sub { ... }
-	else {
+	} else {
+		# Case 2: with_hash %h => sub { ... }
 		# If the first arg is a HASHREF but there is more than one arg,
 		# this is invalid (extra junk).
 		if (@args >= 1 && ref($args[0]) eq 'HASH') {
@@ -243,8 +240,7 @@ sub with_hash {
 		}
 
 		# Must be an even-sized hash list
-		die "with_hash(): odd number of elements in hash list"
-			if @args % 2;
+		die 'with_hash(): odd number of elements in hash list' if @args % 2;
 
 		my %h = @args;
 		$href = \%h;

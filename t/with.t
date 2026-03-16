@@ -12,7 +12,7 @@ use Test::More;
 #   - First arg: hashref
 #   - Second arg: coderef
 #   - Lexicals to be aliased (e.g. $a, $x) must be declared
-#     in the *outer* scope and closed over by the coderef.
+#	 in the *outer* scope and closed over by the coderef.
 #
 # Example:
 #   my %h = ( a => 'b' );
@@ -30,17 +30,17 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = ( a => 'b' );
+	my %h = ( a => 'b' );
 
-    # Declare the lexical in the outer scope so the coderef closes over it.
-    my ($a);
+	# Declare the lexical in the outer scope so the coderef closes over it.
+	my $a;
 
-    my $result = with(\%h, sub {
-        # $a is *not* declared here; it is closed over from outside.
-        return $a;
-    });
+	my $result = with(\%h, sub {
+		# $a is *not* declared here; it is closed over from outside.
+		return $a;
+	});
 
-    is($result, 'b', 'basic aliasing: $a aliases $h{a}');
+	is($result, 'b', 'basic aliasing: $a aliases $h{a}');
 }
 
 # ----------------------------------------------------------------------
@@ -48,17 +48,17 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = ( x => 10, y => 20 );
+	my %h = ( x => 10, y => 20 );
 
-    my ($x, $y);
+	my ($x, $y);
 
-    with(\%h, sub {
-        $x += 5;   # should update $h{x}
-        $y = 99;   # should update $h{y}
-    });
+	with(\%h, sub {
+		$x += 5;   # should update $h{x}
+		$y = 99;   # should update $h{y}
+	});
 
-    is($h{x}, 15, 'writeback: $x += 5 updates $h{x}');
-    is($h{y}, 99, 'writeback: $y = 99 updates $h{y}');
+	is($h{x}, 15, 'writeback: $x += 5 updates $h{x}');
+	is($h{y}, 99, 'writeback: $y = 99 updates $h{y}');
 }
 
 # ----------------------------------------------------------------------
@@ -67,21 +67,21 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = (
-        good      => 'ok',
-        '1bad'    => 'no',
-        'foo-bar' => 'nope',
-    );
+	my %h = (
+		good	  => 'ok',
+		'1bad'	=> 'no',
+		'foo-bar' => 'nope',
+	);
 
-    my ($good);   # only this one is a valid identifier
+	my $good;   # only this one is a valid identifier
 
-    my $seen;
+	my $seen;
 
-    with(\%h, sub {
-        $seen = $good;
-    });
+	with(\%h, sub {
+		$seen = $good;
+	});
 
-    is($seen, 'ok', 'only valid identifiers are aliased');
+	is($seen, 'ok', 'only valid identifiers are aliased');
 }
 
 # ----------------------------------------------------------------------
@@ -90,17 +90,17 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = ( a => 123 );
+	my %h = ( a => 123 );
 
-    my $value;
+	my $value;
 
-    with(\%h, sub {
-        # $a is not declared anywhere
-        # It should remain undef
-        $value = $a;
-    });
+	with(\%h, sub {
+		# $a is not declared anywhere
+		# It should remain undef
+		$value = $a;
+	});
 
-    ok(!defined $value, 'undeclared lexical remains undef (not auto-created)');
+	ok(!defined $value, 'undeclared lexical remains undef (not auto-created)');
 }
 
 # ----------------------------------------------------------------------
@@ -108,15 +108,15 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = ( a => 5, b => 7 );
+	my %h = ( a => 5, b => 7 );
 
-    my ($a, $b);
+	my ($a, $b);
 
-    my $sum = with(\%h, sub {
-        return $a + $b;
-    });
+	my $sum = with(\%h, sub {
+		return $a + $b;
+	});
 
-    is($sum, 12, 'with() returns the coderef result');
+	is($sum, 12, 'with() returns the coderef result');
 }
 
 # ----------------------------------------------------------------------
@@ -124,12 +124,12 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my $error;
+	my $error;
 
-    eval { with([], sub {}) };
-    $error = $@;
+	eval { with([], sub {}) };
+	$error = $@;
 
-    like($error, qr/hashref/, 'dies if first argument is not a hashref');
+	like($error, qr/hashref/, 'dies if first argument is not a hashref');
 }
 
 # ----------------------------------------------------------------------
@@ -137,13 +137,13 @@ use Syntax::Feature::With qw(with);
 # ----------------------------------------------------------------------
 
 {
-    my %h = ( a => 1 );
-    my $error;
+	my %h = ( a => 1 );
+	my $error;
 
-    eval { with(\%h, "not a coderef") };
-    $error = $@;
+	eval { with(\%h, 'not a coderef') };
+	$error = $@;
 
-    like($error, qr/coderef/, 'dies if second argument is not a coderef');
+	like($error, qr/coderef/, 'dies if second argument is not a coderef');
 }
 
 # ----------------------------------------------------------------------
