@@ -6,5 +6,7 @@ WriteMakefile(
     AUTHOR       => 'Nigel Horne (njh@nigelhorne.com)',
     ABSTRACT     => 'Pascal-style with statement for Perl',
     LICENSE      => 'perl',
-    PREREQ_PM    => {},
+    PREREQ_PM    => {
+    	'PadWalker' => 0,
+    	},
 );
