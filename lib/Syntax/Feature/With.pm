@@ -255,6 +255,10 @@ Flags must appear first.
 
 The list must contain an even number of elements.
 
+When called with a key/value list rather than a hash reference,
+C<with_hash> constructs an internal hash for the duration of the block.
+Writes inside the block update this internal hash, not the caller's variables.
+
 =item * A final coderef (required)
 
 The last argument must be a coderef. It receives no parameters; instead,
@@ -341,7 +345,7 @@ simple aliasing.
 Although C<with> and C<with_hash> share a similar calling style, they serve
 different purposes and operate at different levels of abstraction.
 
-=head4 C<with> — the low‑level aliasing engine
+=head4 C<with> - the low-level aliasing engine
 
 C<with> is the core primitive. It expects:
 
@@ -366,7 +370,7 @@ for each key in the provided hash and executes the coderef. It is strict,
 minimal, and intended for internal use or advanced callers who want full
 control.
 
-=head4 C<with_hash> — the user‑friendly wrapper
+=head4 C<with_hash> - the user-friendly wrapper
 
 C<with_hash> is the public, ergonomic interface. It accepts a much more
 flexible argument style:
@@ -387,7 +391,7 @@ C<with_hash> is responsible for:
 
 =item * Converting key/value lists into a hash reference
 
-=item * Producing clear, user‑facing error messages
+=item * Producing clear, user-facing error messages
 
 =item * Calling C<with> with a normalized hashref and the coderef
 
@@ -408,7 +412,8 @@ direct access to the aliasing mechanism.
 =back
 
 C<with_hash> is the safe, friendly API.
-C<with> is the strict, low‑level engine that powers it.
+C<with> is the strict,
+low-level engine that powers it.
 
 =head3 Key Filtering: C<only> and C<except>
 
@@ -454,6 +459,9 @@ Both flags require an array reference. Anything else triggers an error.
 =item *
 
 Filtering is applied B<before> renaming or strict key validation.
+Filtering temporarily hides keys from the underlying hash during the with() call.
+Keys not selected by only/except are removed before aliasing and restored afterwards,
+ensuring that write-through aliasing always affects the original hash.
 
 =item *
 

@@ -125,7 +125,7 @@ ensuring that the hash and coderef are parsed correctly.
 
 - Optional flags
 
-    One or more strings that modify behaviour (e.g. `strict`, `debug`).  
+    One or more strings that modify behaviour (e.g. `strict`, `debug`).
     Flags must appear first.
 
 - A hash reference
@@ -137,6 +137,10 @@ ensuring that the hash and coderef are parsed correctly.
         with_hash a => 1, b => 2, sub { ... };
 
     The list must contain an even number of elements.
+
+    When called with a key/value list rather than a hash reference,
+    `with_hash` constructs an internal hash for the duration of the block.
+    Writes inside the block update this internal hash, not the caller's variables.
 
 - A final coderef (required)
 
@@ -210,7 +214,7 @@ simple aliasing.
 Although `with` and `with_hash` share a similar calling style, they serve
 different purposes and operate at different levels of abstraction.
 
-#### `with` — the low‑level aliasing engine
+#### `with` - the low-level aliasing engine
 
 `with` is the core primitive. It expects:
 
@@ -228,7 +232,7 @@ for each key in the provided hash and executes the coderef. It is strict,
 minimal, and intended for internal use or advanced callers who want full
 control.
 
-#### `with_hash` — the user‑friendly wrapper
+#### `with_hash` - the user-friendly wrapper
 
 `with_hash` is the public, ergonomic interface. It accepts a much more
 flexible argument style:
@@ -243,7 +247,7 @@ flexible argument style:
 - Accepting either a hash reference OR a key/value list
 - Validating argument structure (even key/value pairs, final coderef, etc.)
 - Converting key/value lists into a hash reference
-- Producing clear, user‑facing error messages
+- Producing clear, user-facing error messages
 - Calling `with` with a normalized hashref and the coderef
 
 In other words, `with_hash` does all the DWIM work so that users can write
@@ -255,8 +259,54 @@ clean, concise code without worrying about argument shape or validation.
 - Use `with` only when you already have a validated hashref and want
 direct access to the aliasing mechanism.
 
-`with_hash` is the safe, friendly API.  
-`with` is the strict, low‑level engine that powers it.
+`with_hash` is the safe, friendly API.
+`with` is the strict,
+low-level engine that powers it.
+
+### Key Filtering: `only` and `except`
+
+`with_hash` supports two optional flags that control which keys from the
+input hash are exposed as lexical aliases inside the block.
+
+These flags allow you to limit or refine the set of variables created,
+making aliasing more intentional and avoiding namespace clutter.
+
+#### `-only =` \\@keys>
+
+    with_hash -only => [qw/foo bar/], \%hash, sub {
+        say $foo;   # alias to $hash{foo}
+        say $bar;   # alias to $hash{bar}
+    };
+
+Only the listed keys are aliased. Any keys not listed are ignored. Keys that
+do not exist in the hash are silently skipped.
+
+#### `-except =` \\@keys>
+
+    with_hash -except => [qw/debug verbose/], \%hash, sub {
+        say $host;   # ok
+        say $port;   # ok
+        # $debug is NOT aliased
+    };
+
+All keys except those listed are aliased.
+
+#### Rules and Validation
+
+- `-only` and `-except` are mutually exclusive.
+Using both at the same time results in an error.
+- Both flags require an array reference. Anything else triggers an error.
+- Filtering is applied **before** renaming or strict key validation.
+Filtering temporarily hides keys from the underlying hash during the with() call.
+Keys not selected by only/except are removed before aliasing and restored afterwards,
+ensuring that write-through aliasing always affects the original hash.
+- If filtering removes all keys, the block still runs normally; no aliases are
+created.
+
+#### Error Handling
+
+All validation errors are raised via `Croak`, so error messages correctly
+report the caller's file and line number.
 
 # AUTHOR
 
@@ -320,11 +370,3 @@ The licence terms of this software are as follows:
 - All other users (including Commercial, Charity, Educational, Government)
   must apply in writing for a licence for use from Nigel Horne at the
   above e-mail.
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 342:
-
-    Non-ASCII character seen before =encoding in '—'. Assuming UTF-8
