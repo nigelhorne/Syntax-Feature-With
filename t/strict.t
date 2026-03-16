@@ -16,7 +16,7 @@ use Syntax::Feature::With qw(with);
     my $err;
     eval {
         with -strict => \%h, sub {
-            $a;   # ok
+            () = $a;   # ok
             $b;   # undeclared
         };
     };
@@ -36,8 +36,7 @@ use Syntax::Feature::With qw(with);
         with -strict => \%h, sub { $a + $b };
     };
 
-    ok(!$@, 'strict mode passes when all lexicals declared');
+	ok(!$@, 'strict mode passes when all lexicals declared');
 }
 
 done_testing();
-

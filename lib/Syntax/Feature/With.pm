@@ -129,17 +129,25 @@ sub with_hash {
     die "with_hash(): last argument must be a coderef"
         unless ref($code) eq 'CODE';
 
-    # Next argument may be a hashref OR a hash list
     my $href;
 
+    # Case 1: with_hash \%h, sub { ... }
     if (@args == 1 && ref($args[0]) eq 'HASH') {
-        # Case: with_hash \%h, sub { ... }
         $href = shift @args;
     }
+    # Case 2: with_hash %h => sub { ... }
     else {
-        # Case: with_hash %h => sub { ... }
-        # or with_hash -flags => %h => sub { ... }
-        my %h = @args;   # safe: @args now excludes coderef
+        # If the first arg is a HASHREF but there is more than one arg,
+        # this is invalid (extra junk).
+        if (@args >= 1 && ref($args[0]) eq 'HASH') {
+            die "with_hash(): hashref must be the only argument before coderef";
+        }
+
+        # Must be an even-sized hash list
+        die "with_hash(): odd number of elements in hash list"
+            if @args % 2;
+
+        my %h = @args;
         $href = \%h;
     }
 
@@ -153,7 +161,7 @@ __END__
 
 =head1 NAME
 
-Syntax::Feature::With - Lightweight lexical aliasing with strict/debug/trace modes
+Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
 
 =head1 SYNOPSIS
 
