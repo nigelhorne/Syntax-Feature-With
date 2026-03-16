@@ -15,6 +15,7 @@ t/eol.t
 t/filtering.t
 t/nested.t
 t/pod.t
+t/readonly.t
 t/rename.t
 t/strict.t
 t/trace.t
