@@ -8,6 +8,7 @@ use Exporter 'import';
 use PadWalker qw(closed_over set_closed_over);
 
 our @EXPORT_OK = qw(with with_hash);
+our @EXPORT = qw(with with_hash);
 
 our $VERSION = '0.01';
 

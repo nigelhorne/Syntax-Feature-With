@@ -23,7 +23,7 @@ use Test::More;
 # lexicals that are closed over, not those declared inside
 # the coderef itself.
 
-use Syntax::Feature::With qw(with);
+use Syntax::Feature::With;
 
 # ----------------------------------------------------------------------
 # Basic aliasing: $a should alias $h{a}

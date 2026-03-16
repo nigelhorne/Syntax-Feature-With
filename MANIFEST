@@ -1,4 +1,5 @@
 Changes
+cpanfile
 lib/Syntax/Feature/With.pm
 LICENSE
 Makefile.PL
@@ -14,10 +15,12 @@ t/eof.t
 t/eol.t
 t/filtering.t
 t/nested.t
+t/pod-cm.t
 t/pod.t
 t/readonly.t
 t/rename.t
 t/strict.t
+t/strict_keys.t
 t/trace.t
 t/version.t
 t/with.t
