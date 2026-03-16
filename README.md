@@ -308,6 +308,23 @@ created.
 All validation errors are raised via `Croak`, so error messages correctly
 report the caller's file and line number.
 
+### -readonly
+
+    with_hash -readonly => \%hash, sub {
+        say $foo;   # ok
+        $foo = 10;  # dies
+    };
+
+The `-readonly` flag creates read-only aliases for each exposed hash key.
+Reading works normally, but any attempt to assign to a lexical alias will
+throw an exception.
+
+Readonly aliases still reflect changes made to the underlying hash from
+outside the block.
+
+Readonly mode works with all other flags, including `-rename`,
+`-only`, `-except`, `-strict`, and `-trace`.
+
 ### -rename => { OLDKEY => NEWLEX, ... }
 
 The `-rename` flag allows you to expose hash keys under different lexical

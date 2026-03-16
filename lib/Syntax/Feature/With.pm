@@ -4,7 +4,6 @@ use strict;
 use warnings;
 
 use Carp 'croak';
-
 use Exporter 'import';
 use PadWalker qw(closed_over set_closed_over);
 
@@ -129,16 +128,16 @@ sub with {
 		strict => 0,
 		debug  => 0,
 		trace  => 0,
-		rename => undef,
+		# rename => undef,
 	);
 
-	while (@args && $args[0] =~ /^-(strict|debug|trace|rename)$/) {
+	while (@args && $args[0] =~ /^-(strict|debug|trace|rename|readonly)$/) {
 		my $flag = shift @args;
 
 		if ($flag eq '-rename') {
 			my $map = shift @args;
-			croak 'with(): -rename expects a hashref'
-				unless ref($map) eq 'HASH';
+			croak 'with(): -rename expects a hashref' unless ref($map) eq 'HASH';
+
 			$opts{rename} = $map;
 			next;
 		}
@@ -199,7 +198,12 @@ sub with {
 		}
 
 		# Alias lexical to original hash slot
-		$newpad{$var} = \$href->{$key};
+		if ($opts{readonly}) {
+			tie my $ro, 'Syntax::Feature::With::ReadonlyScalar', \$href->{$key};
+			$newpad{$var} = \$ro;
+		} else {
+			$newpad{$var} = \$href->{$key};
+		}
 
 		warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
 	}
@@ -479,6 +483,23 @@ created.
 All validation errors are raised via C<Croak>, so error messages correctly
 report the caller's file and line number.
 
+=head3 -readonly
+
+    with_hash -readonly => \%hash, sub {
+        say $foo;   # ok
+        $foo = 10;  # dies
+    };
+
+The C<-readonly> flag creates read-only aliases for each exposed hash key.
+Reading works normally, but any attempt to assign to a lexical alias will
+throw an exception.
+
+Readonly aliases still reflect changes made to the underlying hash from
+outside the block.
+
+Readonly mode works with all other flags, including C<-rename>,
+C<-only>, C<-except>, C<-strict>, and C<-trace>.
+
 =head3 -rename => { OLDKEY => NEWLEX, ... }
 
 The C<-rename> flag allows you to expose hash keys under different lexical
@@ -576,7 +597,7 @@ sub with_hash {
 
 	# 1. Boolean flags
 	my @flags;
-	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+	while (@args && $args[0] =~ /^-(strict|debug|trace|readonly)$/) {
 		push @flags, shift @args;
 	}
 
@@ -605,31 +626,26 @@ sub with_hash {
 		}
 	}
 
-	croak "with_hash(): cannot use both -only and -except"
-		if $only && $except;
+	croak 'with_hash(): cannot use both -only and -except' if $only && $except;
 
 	# 3. Extract coderef
-	croak 'with_hash(): missing coderef'
-		unless @args;
+	croak 'with_hash(): missing coderef' unless @args;
 
 	my $code = pop @args;
 
-	croak 'with_hash(): last argument must be a coderef'
-		unless ref($code) eq 'CODE';
+	croak 'with_hash(): last argument must be a coderef' unless ref($code) eq 'CODE';
 
 	# 4. Normalize hash argument
 	my $href;
 
 	if (@args == 1 && ref($args[0]) eq 'HASH') {
 		$href = shift @args;
-	}
-	else {
+	} else {
 		if (@args >= 1 && ref($args[0]) eq 'HASH') {
 			croak 'with_hash(): hashref must be the only argument before coderef';
 		}
 
-		croak 'with_hash(): odd number of elements in hash list'
-			if @args % 2;
+		croak 'with_hash(): odd number of elements in hash list' if @args % 2;
 
 		my %h = @args;
 		$href = \%h;
@@ -645,8 +661,7 @@ sub with_hash {
 		my %keep;
 		if ($only) {
 			%keep = %only;
-		}
-		elsif ($except) {
+		} elsif ($except) {
 			%keep = map { $_ => 1 } grep { !$except{$_} } keys %$href;
 		}
 
@@ -664,6 +679,27 @@ sub with_hash {
 	@$href{keys %removed} = values %removed if %removed;
 
 	return $result;
+}
+
+{
+	package Syntax::Feature::With::ReadonlyScalar;
+
+	use Carp 'croak';
+
+	sub TIESCALAR {
+		my ($class, $ref) = @_;
+		return bless { ref => $ref }, $class;
+	}
+
+	sub FETCH {
+		my $self = $_[0];
+		return ${ $self->{ref} };
+	}
+
+	sub STORE {
+		my ($self, $value) = @_;
+		croak "with(): readonly variable cannot be modified";
+	}
 }
 
 1;
@@ -758,5 +794,3 @@ The licence terms of this software are as follows:
 =back
 
 =cut
-
-1;
