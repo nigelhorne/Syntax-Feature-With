@@ -16,5 +16,6 @@ t/filtering.t
 t/nested.t
 t/strict.t
 t/trace.t
+t/version.t
 t/with.t
 t/with_hash.t
