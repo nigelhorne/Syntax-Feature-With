@@ -676,6 +676,9 @@ Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LIMITATIONS
 
+C<with()> uses PadWalker to manipulate lexical pads.
+This is fast enough for normal use, but not intended for tight loops or high-frequency calls.
+
 =over 4
 
 =item *

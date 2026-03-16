@@ -263,7 +263,7 @@ direct access to the aliasing mechanism.
 `with` is the strict,
 low-level engine that powers it.
 
-### Key Filtering: `only` and `except`
+### Key Filtering: `-only` and `-except`
 
 `with_hash` supports two optional flags that control which keys from the
 input hash are exposed as lexical aliases inside the block.
@@ -308,11 +308,91 @@ created.
 All validation errors are raised via `Croak`, so error messages correctly
 report the caller's file and line number.
 
+### -rename => { OLDKEY => NEWLEX, ... }
+
+The `-rename` flag allows you to expose hash keys under different lexical
+variable names inside the `with_hash` block.
+
+This is useful when the original hash keys are not valid Perl identifiers
+(e.g. contain hyphens), or when you want more convenient or descriptive
+lexical names.
+
+    with_hash
+        -rename => {
+            'http-status' => 'status',
+            'user_id'     => 'user',
+        },
+        \%hash,
+        sub {
+            say $status;   # alias to $hash{'http-status'}
+            say $user;     # alias to $hash{'user_id'}
+        };
+
+Renaming does **not** copy values.  The new lexical name is aliased directly
+to the original hash slot, so write-through works as expected:
+
+    $status = 404;   # updates $hash{'http-status'}
+    $user   = 99;    # updates $hash{'user_id'}
+
+#### Interaction with filtering
+
+Renaming happens **after** `-only` / `-except` filtering.  Filtering selects
+which keys are visible; renaming changes the lexical names of those keys.
+
+For example:
+
+    with_hash
+        -only   => [qw/http-status foo/],
+        -rename => { 'http-status' => 'status' },
+        \%hash,
+        sub {
+            say $status;   # ok
+            say $foo;      # ok
+            say $user;     # undef (not selected by -only)
+        };
+
+#### Interaction with strict mode
+
+When `-strict` is enabled, every renamed lexical must be declared in the
+outer scope.  If a renamed lexical does not exist, `with_hash` will croak:
+
+    my ($status);   # but NOT $missing_lex
+
+    with_hash
+        -strict,
+        -rename => { 'http-status' => 'missing_lex' },
+        \%hash,
+        sub { ... };
+
+This dies with:
+
+    strict mode: lexical $missing_lex not declared in outer scope
+
+#### Validity of new names
+
+The new lexical name must be a valid Perl identifier:
+
+    /^[A-Za-z_]\w*$/
+
+If the new name is invalid, the key is ignored (or causes an error under
+`-strict`).
+
+#### Summary
+
+- Renames hash keys to different lexical variable names.
+- Write-through updates the original hash.
+- Works with `-only` and `-except`.
+- Respects `-strict` (renamed lexicals must exist).
+- Does not copy values; aliases directly to the original storage.
+
 # AUTHOR
 
 Nigel Horne, `<njh at nigelhorne.com>`
 
 # LIMITATIONS
+
+`with()` uses PadWalker to manipulate lexical pads.
+This is fast enough for normal use, but not intended for tight loops or high-frequency calls.
 
 - Lexicals must be declared in the outer scope.
 - Only hashrefs are supported.
