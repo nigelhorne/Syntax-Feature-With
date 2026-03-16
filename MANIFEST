@@ -1,3 +1,4 @@
+Changes
 lib/Syntax/Feature/With.pm
 LICENSE
 Makefile.PL
@@ -7,6 +8,8 @@ README.md
 t/basic.t
 t/debug.t
 t/edge_cases.t
+t/eof.t
+t/eol.t
 t/nested.t
 t/strict.t
 t/trace.t

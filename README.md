@@ -1,6 +1,6 @@
 # NAME
 
-Syntax::Feature::With - Lightweight lexical aliasing with strict/debug/trace modes
+Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
 
 # SYNOPSIS
 
@@ -97,6 +97,10 @@ Syntactic sugar:
 
     with_hash %h => sub { ... };
 
+# AUTHOR
+
+Nigel Horne, `<njh at nigelhorne.com>`
+
 # LIMITATIONS
 
 - Lexicals must be declared in the outer scope.
@@ -110,3 +114,52 @@ Nigel Horne
 # LICENSE
 
 Same terms as Perl itself.
+
+# REPOSITORY
+
+[https://github.com/nigelhorne/Syntax-Feature-With](https://github.com/nigelhorne/Syntax-Feature-With)
+
+# SUPPORT
+
+This module is provided as-is without any warranty.
+
+Please report any bugs or feature requests to `bug-syntax-feature-with at rt.cpan.org`,
+or through the web interface at
+[http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Syntax-Featre-With](http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Syntax-Featre-With).
+I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc Syntax-Feature-With
+
+You can also look for information at:
+
+- MetaCPAN
+
+    [https://metacpan.org/dist/Syntax-Featre-With](https://metacpan.org/dist/Syntax-Featre-With)
+
+- RT: CPAN's request tracker
+
+    [https://rt.cpan.org/NoAuth/Bugs.html?Dist=Syntax-Featre-With](https://rt.cpan.org/NoAuth/Bugs.html?Dist=Syntax-Featre-With)
+
+- CPAN Testers' Matrix
+
+    [http://matrix.cpantesters.org/?dist=Syntax-Featre-With](http://matrix.cpantesters.org/?dist=Syntax-Featre-With)
+
+- CPAN Testers Dependencies
+
+    [http://deps.cpantesters.org/?module=Syntax-Featre-With](http://deps.cpantesters.org/?module=Syntax-Featre-With)
+
+# LICENCE AND COPYRIGHT
+
+Copyright 2026 Nigel Horne.
+
+Usage is subject to licence terms.
+
+The licence terms of this software are as follows:
+
+- Personal single user, single computer use: GPL2
+- All other users (including Commercial, Charity, Educational, Government)
+  must apply in writing for a licence for use from Nigel Horne at the
+  above e-mail.

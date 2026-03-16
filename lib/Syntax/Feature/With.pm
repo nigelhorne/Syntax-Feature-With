@@ -13,152 +13,6 @@ our $VERSION = '0.01';
 # Track nested with() depth for trace/debug output
 my $WITH_DEPTH = 0;
 
-# ------------------------------------------------------------
-# with() — main entry point
-# ------------------------------------------------------------
-sub with {
-    my @args = @_;
-
-    # --------------------------------------------------------
-    # Parse flags
-    # --------------------------------------------------------
-    my %opts = (
-        strict => 0,
-        debug  => 0,
-        trace  => 0,
-    );
-
-    while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
-        my $flag = shift @args;
-        $flag =~ s/^-//;
-        $opts{$flag} = 1;
-    }
-
-    # trace implies debug
-    $opts{debug} = 1 if $opts{trace};
-
-    # --------------------------------------------------------
-    # Extract hashref + coderef
-    # --------------------------------------------------------
-    my ($href, $code) = @args;
-
-    die "with(): first argument must be a hashref"
-        unless ref($href) eq 'HASH';
-
-    die "with(): second argument must be a coderef"
-        unless ref($code) eq 'CODE';
-
-    # --------------------------------------------------------
-    # Trace: entering
-    # --------------------------------------------------------
-    $WITH_DEPTH++;
-    if ($opts{trace}) {
-        warn "[with depth=$WITH_DEPTH] entering with()\n";
-    }
-
-    # --------------------------------------------------------
-    # Get closure pad of the coderef
-    # --------------------------------------------------------
-    my $closed = closed_over($code);
-    my %newpad = %$closed;
-
-    # --------------------------------------------------------
-    # Process each hash key
-    # --------------------------------------------------------
-    KEY:
-    for my $key (keys %$href) {
-
-        # Valid Perl identifier?
-        unless ($key =~ /^[A-Za-z_]\w*$/) {
-            warn "Ignored: $key (invalid identifier)\n" if $opts{debug};
-            next KEY;
-        }
-
-        my $var = '$' . $key;
-
-        # Lexical declared in outer scope?
-        unless (exists $newpad{$var}) {
-            if ($opts{strict}) {
-                die "with(): strict mode: lexical \$$key not declared in outer scope";
-            }
-            warn "Ignored: $key (no lexical declared)\n" if $opts{debug};
-            next KEY;
-        }
-
-        # Alias lexical to hash slot
-        $newpad{$var} = \$href->{$key};
-
-        warn "Aliased: \$$key → \%hash{$key}\n" if $opts{debug};
-    }
-
-    # --------------------------------------------------------
-    # Install modified pad
-    # --------------------------------------------------------
-    set_closed_over($code, \%newpad);
-
-    # --------------------------------------------------------
-    # Execute coderef
-    # --------------------------------------------------------
-    my $result = $code->();
-
-    # --------------------------------------------------------
-    # Trace: leaving
-    # --------------------------------------------------------
-    if ($opts{trace}) {
-        warn "[with depth=$WITH_DEPTH] leaving with()\n";
-    }
-    $WITH_DEPTH--;
-
-    return $result;
-}
-
-# ------------------------------------------------------------
-# with_hash() — convenience wrapper
-# ------------------------------------------------------------
-sub with_hash {
-    my @args = @_;
-
-    # Extract flags
-    my @flags;
-    while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
-        push @flags, shift @args;
-    }
-
-    # Last argument must be a coderef
-    my $code = pop @args;
-    die "with_hash(): last argument must be a coderef"
-        unless ref($code) eq 'CODE';
-
-    my $href;
-
-    # Case 1: with_hash \%h, sub { ... }
-    if (@args == 1 && ref($args[0]) eq 'HASH') {
-        $href = shift @args;
-    }
-    # Case 2: with_hash %h => sub { ... }
-    else {
-        # If the first arg is a HASHREF but there is more than one arg,
-        # this is invalid (extra junk).
-        if (@args >= 1 && ref($args[0]) eq 'HASH') {
-            die "with_hash(): hashref must be the only argument before coderef";
-        }
-
-        # Must be an even-sized hash list
-        die "with_hash(): odd number of elements in hash list"
-            if @args % 2;
-
-        my %h = @args;
-        $href = \%h;
-    }
-
-    return with(@flags, $href, $code);
-}
-
-
-1;
-
-__END__
-
 =head1 NAME
 
 Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
@@ -258,6 +112,155 @@ Syntactic sugar:
 
     with_hash %h => sub { ... };
 
+=cut
+
+# ------------------------------------------------------------
+# with() — main entry point
+# ------------------------------------------------------------
+sub with {
+	my @args = @_;
+
+	# --------------------------------------------------------
+	# Parse flags
+	# --------------------------------------------------------
+	my %opts = (
+		strict => 0,
+		debug  => 0,
+		trace  => 0,
+	);
+
+	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+		my $flag = shift @args;
+		$flag =~ s/^-//;
+		$opts{$flag} = 1;
+	}
+
+	# trace implies debug
+	$opts{debug} = 1 if $opts{trace};
+
+	# --------------------------------------------------------
+	# Extract hashref + coderef
+	# --------------------------------------------------------
+	my ($href, $code) = @args;
+
+	die "with(): first argument must be a hashref" unless ref($href) eq 'HASH';
+
+	die "with(): second argument must be a coderef" unless ref($code) eq 'CODE';
+
+	# --------------------------------------------------------
+	# Trace: entering
+	# --------------------------------------------------------
+	$WITH_DEPTH++;
+	if ($opts{trace}) {
+		warn "[with depth=$WITH_DEPTH] entering with()";
+	}
+
+	# --------------------------------------------------------
+	# Get closure pad of the coderef
+	# --------------------------------------------------------
+	my $closed = closed_over($code);
+	my %newpad = %$closed;
+
+	# --------------------------------------------------------
+	# Process each hash key
+	# --------------------------------------------------------
+	KEY:
+	for my $key (keys %$href) {
+
+		# Valid Perl identifier?
+		unless ($key =~ /^[A-Za-z_]\w*$/) {
+			warn "Ignored: $key (invalid identifier)" if $opts{debug};
+			next KEY;
+		}
+
+		my $var = '$' . $key;
+
+		# Lexical declared in outer scope?
+		unless (exists $newpad{$var}) {
+			if ($opts{strict}) {
+				die "with(): strict mode: lexical \$$key not declared in outer scope";
+			}
+			warn "Ignored: $key (no lexical declared)" if $opts{debug};
+			next KEY;
+		}
+
+		# Alias lexical to hash slot
+		$newpad{$var} = \$href->{$key};
+
+		warn "Aliased: \$$key => \%hash{$key}" if $opts{debug};
+	}
+
+	# --------------------------------------------------------
+	# Install modified pad
+	# --------------------------------------------------------
+	set_closed_over($code, \%newpad);
+
+	# --------------------------------------------------------
+	# Execute coderef
+	# --------------------------------------------------------
+	my $result = $code->();
+
+	# --------------------------------------------------------
+	# Trace: leaving
+	# --------------------------------------------------------
+	if ($opts{trace}) {
+		warn "[with depth=$WITH_DEPTH] leaving with()";
+	}
+	$WITH_DEPTH--;
+
+	return $result;
+}
+
+# ------------------------------------------------------------
+# with_hash() — convenience wrapper
+# ------------------------------------------------------------
+sub with_hash {
+	my @args = @_;
+
+	# Extract flags
+	my @flags;
+	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
+		push @flags, shift @args;
+	}
+
+	# Last argument must be a coderef
+	my $code = pop @args;
+	die "with_hash(): last argument must be a coderef"
+		unless ref($code) eq 'CODE';
+
+	my $href;
+
+	# Case 1: with_hash \%h, sub { ... }
+	if (@args == 1 && ref($args[0]) eq 'HASH') {
+		$href = shift @args;
+	}
+	# Case 2: with_hash %h => sub { ... }
+	else {
+		# If the first arg is a HASHREF but there is more than one arg,
+		# this is invalid (extra junk).
+		if (@args >= 1 && ref($args[0]) eq 'HASH') {
+			die "with_hash(): hashref must be the only argument before coderef";
+		}
+
+		# Must be an even-sized hash list
+		die "with_hash(): odd number of elements in hash list"
+			if @args % 2;
+
+		my %h = @args;
+		$href = \%h;
+	}
+
+	return with(@flags, $href, $code);
+}
+
+1;
+
+__END__
+
+=head1 AUTHOR
+
+Nigel Horne, C<< <njh at nigelhorne.com> >>
+
 =head1 LIMITATIONS
 
 =over 4
@@ -286,3 +289,64 @@ Same terms as Perl itself.
 
 =cut
 
+=head1 REPOSITORY
+
+L<https://github.com/nigelhorne/Syntax-Feature-With>
+
+=head1 SUPPORT
+
+This module is provided as-is without any warranty.
+
+Please report any bugs or feature requests to C<bug-syntax-feature-with at rt.cpan.org>,
+or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Syntax-Featre-With>.
+I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc Syntax-Feature-With
+
+You can also look for information at:
+
+=over 4
+
+=item * MetaCPAN
+
+L<https://metacpan.org/dist/Syntax-Featre-With>
+
+=item * RT: CPAN's request tracker
+
+L<https://rt.cpan.org/NoAuth/Bugs.html?Dist=Syntax-Featre-With>
+
+=item * CPAN Testers' Matrix
+
+L<http://matrix.cpantesters.org/?dist=Syntax-Featre-With>
+
+=item * CPAN Testers Dependencies
+
+L<http://deps.cpantesters.org/?module=Syntax-Featre-With>
+
+=back
+
+=head1 LICENCE AND COPYRIGHT
+
+Copyright 2026 Nigel Horne.
+
+Usage is subject to licence terms.
+
+The licence terms of this software are as follows:
+
+=over 4
+
+=item * Personal single user, single computer use: GPL2
+
+=item * All other users (including Commercial, Charity, Educational, Government)
+  must apply in writing for a licence for use from Nigel Horne at the
+  above e-mail.
+
+=back
+
+=cut
+
+1;

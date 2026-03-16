@@ -6,186 +6,156 @@ use Test::More;
 
 use Syntax::Feature::With qw(with_hash);
 
-# ------------------------------------------------------------
-# 1. Empty hash list
-# ------------------------------------------------------------
+# Empty hash list
 {
-    my ($a);
+	my ($a);
 
-    my $result = with_hash sub { $a };
+	my $result = with_hash sub { $a };
 
-    ok(!defined $result, 'empty hash list: lexical remains undef');
+	ok(!defined $result, 'empty hash list: lexical remains undef');
 }
 
-# ------------------------------------------------------------
-# 2. Empty hashref
-# ------------------------------------------------------------
+# Empty hashref
 {
-    my %h;
-    my ($a);
+	my %h;
+	my ($a);
 
-    my $result = with_hash \%h, sub { $a };
+	my $result = with_hash \%h, sub { $a };
 
-    ok(!defined $result, 'empty hashref: lexical remains undef');
+	ok(!defined $result, 'empty hashref: lexical remains undef');
 }
 
-# ------------------------------------------------------------
-# 3. Flags + empty hash list
-# ------------------------------------------------------------
+# Flags + empty hash list
 {
-    my ($a);
+	my $a;
 
-    my $result = with_hash -debug => sub { $a };
+	my $result = with_hash -debug => sub { $a };
 
-    ok(!defined $result, 'flags + empty hash list works');
+	ok(!defined $result, 'flags + empty hash list works');
 }
 
-# ------------------------------------------------------------
-# 4. Flags + empty hashref
-# ------------------------------------------------------------
+# Flags + empty hashref
 {
-    my %h;
-    my ($a);
+	my %h;
+	my ($a);
 
-    my $result = with_hash -strict => \%h, sub { $a };
+	my $result = with_hash -strict => \%h, sub { $a };
 
-    ok(!defined $result, 'flags + empty hashref works');
+	ok(!defined $result, 'flags + empty hashref works');
 }
 
-# 5. Hash list with odd number of elements (user error)
+# Hash list with odd number of elements (user error)
 {
-    my $err;
-    eval {
-        with_hash a => 1 => 2 => sub { };   # malformed
-    };
-    $err = $@;
+	my $err;
+	eval {
+		with_hash a => 1 => 2 => sub { };   # malformed
+	};
+	$err = $@;
 
-    like($err, qr/odd number of elements in hash list/,
-         'odd number of elements triggers error');
+	like($err, qr/odd number of elements in hash list/,
+		 'odd number of elements triggers error');
 }
 
-# 6. Hashref + extra junk (user error)
+# Hashref + extra junk (user error)
 {
-    my %h = ( a => 1 );
-    my $err;
+	my %h = ( a => 1 );
+	my $err;
 
-    eval {
-        with_hash \%h, 'junk', sub { };
-    };
-    $err = $@;
+	eval {
+		with_hash \%h, 'junk', sub { };
+	};
+	$err = $@;
 
-like($err, qr/hashref must be the only argument before coderef/,
-     'extra junk before coderef triggers error');
-	 
+	like($err, qr/hashref must be the only argument before coderef/, 'extra junk before coderef triggers error');
 }
 
-
-# ------------------------------------------------------------
-# 7. No coderef at all
-# ------------------------------------------------------------
+# No coderef at all
 {
-    my $err;
+	my $err;
 
-    eval { with_hash a => 1 };
-    $err = $@;
+	eval { with_hash a => 1 };
+	$err = $@;
 
-    like($err, qr/coderef/, 'missing coderef triggers error');
+	like($err, qr/coderef/, 'missing coderef triggers error');
 }
 
-# ------------------------------------------------------------
-# 8. Flags + hashref + coderef
-# ------------------------------------------------------------
+# Flags + hashref + coderef
 {
-    my %h = ( a => 10 );
-    my ($a);
+	my %h = ( a => 10 );
+	my ($a);
 
-    my $result = with_hash -debug => \%h, sub { $a };
+	my $result = with_hash -debug => \%h, sub { $a };
 
-    is($result, 10, 'flags + hashref + coderef works');
+	is($result, 10, 'flags + hashref + coderef works');
 }
 
-# ------------------------------------------------------------
-# 9. Flags + hash list + coderef
-# ------------------------------------------------------------
+# Flags + hash list + coderef
 {
-    my ($a);
+	my ($a);
 
-    my $result = with_hash -trace => a => 5 => sub { $a };
+	my $result = with_hash -trace => a => 5 => sub { $a };
 
-    is($result, 5, 'flags + hash list + coderef works');
+	is($result, 5, 'flags + hash list + coderef works');
 }
 
-# ------------------------------------------------------------
-# 10. Multiple flags
-# ------------------------------------------------------------
+# Multiple flags
 {
-    my %h = ( a => 7 );
-    my ($a);
+	my %h = ( a => 7 );
+	my ($a);
 
-    my $result = with_hash -strict => -debug => \%h, sub { $a };
+	my $result = with_hash -strict => -debug => \%h, sub { $a };
 
-    is($result, 7, 'multiple flags work');
+	is($result, 7, 'multiple flags work');
 }
 
-# ------------------------------------------------------------
-# 11. Hash list with only one key/value pair
-# ------------------------------------------------------------
+# Hash list with only one key/value pair
 {
-    my ($a);
+	my ($a);
 
-    my $result = with_hash a => 123 => sub { $a };
+	my $result = with_hash a => 123 => sub { $a };
 
-    is($result, 123, 'single key/value pair works');
+	is($result, 123, 'single key/value pair works');
 }
 
-# ------------------------------------------------------------
-# 12. Hash list with many pairs
-# ------------------------------------------------------------
+# Hash list with many pairs
 {
-    my ($a, $b, $c);
+	my ($a, $b, $c);
 
-    my $result = with_hash a => 1, b => 2, c => 3 => sub {
-        return $a + $b + $c;
-    };
+	my $result = with_hash a => 1, b => 2, c => 3 => sub {
+		return $a + $b + $c;
+	};
 
-    is($result, 6, 'multiple key/value pairs work');
+	is($result, 6, 'multiple key/value pairs work');
 }
 
-# ------------------------------------------------------------
-# 13. Hashref with many keys
-# ------------------------------------------------------------
+# Hashref with many keys
 {
-    my %h = ( a => 1, b => 2, c => 3 );
-    my ($a, $b, $c);
+	my %h = ( a => 1, b => 2, c => 3 );
+	my ($a, $b, $c);
 
-    my $result = with_hash \%h, sub { $a + $b + $c };
+	my $result = with_hash \%h, sub { $a + $b + $c };
 
-    is($result, 6, 'hashref with many keys works');
+	is($result, 6, 'hashref with many keys works');
 }
 
-# ------------------------------------------------------------
-# 14. with_hash should not modify the original hashref
-# ------------------------------------------------------------
+# with_hash should not modify the original hashref
 {
-    my %h = ( a => 1 );
-    my ($a);
+	my %h = ( a => 1 );
+	my ($a);
 
-    with_hash \%h, sub { $a = 99 };
+	with_hash \%h, sub { $a = 99 };
 
-    is($h{a}, 99, 'writeback still works through with_hash');
+	is($h{a}, 99, 'writeback still works through with_hash');
 }
 
-# ------------------------------------------------------------
-# 15. with_hash should not leak flags into with()
-# ------------------------------------------------------------
+# with_hash should not leak flags into with()
 {
-    my %h = ( a => 1 );
-    my ($a);
+	my %h = ( a => 1 );
+	my $a;
 
-    my $result = with_hash -debug => \%h, sub { $a };
+	my $result = with_hash -debug => \%h, sub { $a };
 
-    is($result, 1, 'flags do not leak between calls');
+	is($result, 1, 'flags do not leak between calls');
 }
 
 done_testing();
-
