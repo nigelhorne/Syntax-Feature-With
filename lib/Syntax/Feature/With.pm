@@ -3,6 +3,8 @@ package Syntax::Feature::With;
 use strict;
 use warnings;
 
+use Carp 'croak';
+
 use Exporter 'import';
 use PadWalker qw(closed_over set_closed_over);
 
@@ -143,7 +145,7 @@ sub with {
 	# --------------------------------------------------------
 	my ($href, $code) = @args;
 
-	die "with(): first argument must be a hashref" unless ref($href) eq 'HASH';
+	croak 'with(): first argument must be a hashref' unless ref($href) eq 'HASH';
 
 	die "with(): second argument must be a coderef" unless ref($code) eq 'CODE';
 
@@ -408,42 +410,156 @@ direct access to the aliasing mechanism.
 C<with_hash> is the safe, friendly API.
 C<with> is the strict, low‑level engine that powers it.
 
+=head3 Key Filtering: C<only> and C<except>
+
+C<with_hash> supports two optional flags that control which keys from the
+input hash are exposed as lexical aliases inside the block.
+
+These flags allow you to limit or refine the set of variables created,
+making aliasing more intentional and avoiding namespace clutter.
+
+=head4 C<-only => \@keys>
+
+    with_hash -only => [qw/foo bar/], \%hash, sub {
+        say $foo;   # alias to $hash{foo}
+        say $bar;   # alias to $hash{bar}
+    };
+
+Only the listed keys are aliased. Any keys not listed are ignored. Keys that
+do not exist in the hash are silently skipped.
+
+=head4 C<-except => \@keys>
+
+    with_hash -except => [qw/debug verbose/], \%hash, sub {
+        say $host;   # ok
+        say $port;   # ok
+        # $debug is NOT aliased
+    };
+
+All keys except those listed are aliased.
+
+=head4 Rules and Validation
+
+=over 4
+
+=item *
+
+C<-only> and C<-except> are mutually exclusive.
+Using both at the same time results in an error.
+
+=item *
+
+Both flags require an array reference. Anything else triggers an error.
+
+=item *
+
+Filtering is applied B<before> renaming or strict key validation.
+
+=item *
+
+If filtering removes all keys, the block still runs normally; no aliases are
+created.
+
+=back
+
+=head4 Error Handling
+
+All validation errors are raised via C<Croak>, so error messages correctly
+report the caller's file and line number.
+
 =cut
 
 sub with_hash {
 	my @args = @_;
 
-	# Extract flags
+	# ------------------------------------------------------------
+	# 1. Extract boolean flags: -strict, -debug, -trace
+	# ------------------------------------------------------------
 	my @flags;
 	while (@args && $args[0] =~ /^-(strict|debug|trace)$/) {
 		push @flags, shift @args;
 	}
 
-	# Last argument must be a coderef
-	my $code = pop @args;
-	die 'with_hash(): last argument must be a coderef' unless ref($code) eq 'CODE';
+	# ------------------------------------------------------------
+	# 2. Extract value-taking flags: -only, -except
+	# ------------------------------------------------------------
+	my ($only, $except);
 
+	while (@args && $args[0] =~ /^-(only|except)$/) {
+		my $flag = shift @args;
+		my $value = shift @args;
+
+		croak "with_hash(): $flag expects an arrayref" unless ref($value) eq 'ARRAY';
+
+		if ($flag eq '-only')   { $only   = $value }
+		if ($flag eq '-except') { $except = $value }
+	}
+
+	croak "with_hash(): cannot use both -only and -except" if $only && $except;
+
+	# ------------------------------------------------------------
+	# 3. Extract coderef
+	# ------------------------------------------------------------
+	my $code = pop @args;
+	croak 'with_hash(): last argument must be a coderef' unless ref($code) eq 'CODE';
+
+	# ------------------------------------------------------------
+	# 4. Normalize hash argument
+	# ------------------------------------------------------------
 	my $href;
 
 	if (@args == 1 && ref($args[0]) eq 'HASH') {
-		# Case 1: with_hash \%h, sub { ... }
 		$href = shift @args;
 	} else {
-		# Case 2: with_hash %h => sub { ... }
-		# If the first arg is a HASHREF but there is more than one arg,
-		# this is invalid (extra junk).
 		if (@args >= 1 && ref($args[0]) eq 'HASH') {
-			die 'with_hash(): hashref must be the only argument before coderef';
+			croak 'with_hash(): hashref must be the only argument before coderef';
 		}
 
-		# Must be an even-sized hash list
-		die 'with_hash(): odd number of elements in hash list' if @args % 2;
+		croak 'with_hash(): odd number of elements in hash list'
+			if @args % 2;
 
 		my %h = @args;
 		$href = \%h;
 	}
 
-	return with(@flags, $href, $code);
+	# ------------------------------------------------------------
+	# 5. Apply filtering BEFORE calling with(), by temporarily
+	#	removing keys from the original hash and restoring them
+	#	afterwards. This preserves aliasing to the real storage.
+	# ------------------------------------------------------------
+	my %removed;
+
+	if ($only || $except) {
+		my %only   = $only   ? map { $_ => 1 } @$only   : ();
+		my %except = $except ? map { $_ => 1 } @$except : ();
+
+		my %keep;
+		if ($only) {
+			%keep = %only;
+		} elsif ($except) {
+			%keep = map { $_ => 1 } grep { !$except{$_} } keys %$href;
+		}
+
+		for my $k (keys %$href) {
+			next if $keep{$k};
+			$removed{$k} = $href->{$k};
+			delete $href->{$k};
+		}
+	}
+
+	# ------------------------------------------------------------
+	# 6. Call underlying engine
+	# ------------------------------------------------------------
+	my $result = with($href, $code, @flags);
+
+	# ------------------------------------------------------------
+	# 7. Restore removed keys
+	# ------------------------------------------------------------
+	if (%removed) {
+		@$href{keys %removed} = values %removed;
+	}
+
+	return $result;
 }
 
 1;
