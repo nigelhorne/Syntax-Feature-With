@@ -240,7 +240,7 @@ C<with_hash> accepts the following forms:
 
 =item * Optional flags
 
-One or more strings that modify behaviour (e.g. C<strict>, C<debug>).  
+One or more strings that modify behaviour (e.g. C<strict>, C<debug>).
 Flags must appear first.
 
 =item * A hash reference
@@ -405,7 +405,7 @@ direct access to the aliasing mechanism.
 
 =back
 
-C<with_hash> is the safe, friendly API.  
+C<with_hash> is the safe, friendly API.
 C<with> is the strict, low‑level engine that powers it.
 
 =cut
