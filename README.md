@@ -97,6 +97,167 @@ Syntactic sugar:
 
     with_hash %h => sub { ... };
 
+## with\_hash
+
+    with_hash \%hash, sub {
+        say $foo;     # reads $hash{foo}
+        $bar = 123;   # writes to $hash{bar}
+    };
+
+    with_hash strict => a => 1, b => 2, sub {
+        ...
+    };
+
+Execute a block with temporary lexical aliases to the keys of a hash.
+
+`with_hash` provides a convenient way to work with a hash by exposing each
+key as a lexical variable inside a coderef. Reads and writes to those
+lexicals operate directly on the underlying hash, making the block feel like
+it has named parameters or local variables without the usual unpacking
+boilerplate.
+
+This is syntactic sugar around `with()`, normalizing the arguments and
+ensuring that the hash and coderef are parsed correctly.
+
+### Arguments
+
+`with_hash` accepts the following forms:
+
+- Optional flags
+
+    One or more strings that modify behaviour (e.g. `strict`, `debug`).  
+    Flags must appear first.
+
+- A hash reference
+
+        with_hash \%h, sub { ... };
+
+- A hash list
+
+        with_hash a => 1, b => 2, sub { ... };
+
+    The list must contain an even number of elements.
+
+- A final coderef (required)
+
+    The last argument must be a coderef. It receives no parameters; instead,
+    lexical aliases are created for each hash key.
+
+### Behaviour
+
+Inside the coderef:
+
+- Each hash key becomes a lexical variable
+
+        $foo   # alias to $hash{foo}
+        $bar   # alias to $hash{bar}
+
+- Assigning to a lexical updates the original hash
+
+        $foo = 42;   # sets $hash{foo} = 42
+
+- Reading the lexical reads from the hash
+- Aliases are removed when the coderef returns
+
+### Error Handling
+
+`with_hash` throws descriptive exceptions when:
+
+- No coderef is provided
+- A hash list has an odd number of elements
+- Extra arguments appear after the coderef
+- The hash argument is neither a hashref nor a valid key/value list
+
+These errors are intended to catch common mistakes early and make test
+failures easier to diagnose.
+
+### Return Value
+
+Returns whatever the coderef returns.
+
+### Examples
+
+Using a hashref:
+
+    my %config = ( host => 'localhost', port => 3306 );
+
+    with_hash \%config, sub {
+        say "$host:$port";   # prints "localhost:3306"
+        $port = 3307;        # updates %config
+    };
+
+Using a hash list:
+
+    with_hash debug => 1, retries => 3, sub {
+        $retries++;          # modifies the underlying hash
+    };
+
+With flags:
+
+    with_hash strict => \%opts, sub {
+        ...
+    };
+
+### Notes
+
+`with_hash` is intended for small, self-contained blocks where aliasing
+improves clarity. It is not a general-purpose replacement for normal hash
+access, nor does it attempt to provide full lexical scoping tricks beyond
+simple aliasing.
+
+### with vs. with\_hash
+
+Although `with` and `with_hash` share a similar calling style, they serve
+different purposes and operate at different levels of abstraction.
+
+#### `with` — the low‑level aliasing engine
+
+`with` is the core primitive. It expects:
+
+    with \%hash, sub { ... };
+
+It assumes that:
+
+- The first argument is already a valid hash reference
+- The last argument is a coderef
+- Any flags have already been parsed
+- The hash keys are suitable for use as lexical variable names
+
+`with` performs no argument normalization. It simply creates lexical aliases
+for each key in the provided hash and executes the coderef. It is strict,
+minimal, and intended for internal use or advanced callers who want full
+control.
+
+#### `with_hash` — the user‑friendly wrapper
+
+`with_hash` is the public, ergonomic interface. It accepts a much more
+flexible argument style:
+
+    with_hash a => 1, b => 2, sub { ... };
+    with_hash \%hash, sub { ... };
+    with_hash strict => a => 1, b => 2, sub { ... };
+
+`with_hash` is responsible for:
+
+- Parsing optional flags
+- Accepting either a hash reference OR a key/value list
+- Validating argument structure (even key/value pairs, final coderef, etc.)
+- Converting key/value lists into a hash reference
+- Producing clear, user‑facing error messages
+- Calling `with` with a normalized hashref and the coderef
+
+In other words, `with_hash` does all the DWIM work so that users can write
+clean, concise code without worrying about argument shape or validation.
+
+#### Summary
+
+- Use `with_hash` in normal code.
+- Use `with` only when you already have a validated hashref and want
+direct access to the aliasing mechanism.
+
+`with_hash` is the safe, friendly API.  
+`with` is the strict, low‑level engine that powers it.
+
 # AUTHOR
 
 Nigel Horne, `<njh at nigelhorne.com>`
@@ -159,3 +320,11 @@ The licence terms of this software are as follows:
 - All other users (including Commercial, Charity, Educational, Government)
   must apply in writing for a licence for use from Nigel Horne at the
   above e-mail.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 342:
+
+    Non-ASCII character seen before =encoding in '—'. Assuming UTF-8

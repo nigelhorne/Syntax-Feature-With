@@ -210,9 +210,206 @@ sub with {
 	return $result;
 }
 
-# ------------------------------------------------------------
-# with_hash() — convenience wrapper
-# ------------------------------------------------------------
+=head2 with_hash
+
+    with_hash \%hash, sub {
+        say $foo;     # reads $hash{foo}
+        $bar = 123;   # writes to $hash{bar}
+    };
+
+    with_hash strict => a => 1, b => 2, sub {
+        ...
+    };
+
+Execute a block with temporary lexical aliases to the keys of a hash.
+
+C<with_hash> provides a convenient way to work with a hash by exposing each
+key as a lexical variable inside a coderef. Reads and writes to those
+lexicals operate directly on the underlying hash, making the block feel like
+it has named parameters or local variables without the usual unpacking
+boilerplate.
+
+This is syntactic sugar around C<with()>, normalizing the arguments and
+ensuring that the hash and coderef are parsed correctly.
+
+=head3 Arguments
+
+C<with_hash> accepts the following forms:
+
+=over 4
+
+=item * Optional flags
+
+One or more strings that modify behaviour (e.g. C<strict>, C<debug>).  
+Flags must appear first.
+
+=item * A hash reference
+
+    with_hash \%h, sub { ... };
+
+=item * A hash list
+
+    with_hash a => 1, b => 2, sub { ... };
+
+The list must contain an even number of elements.
+
+=item * A final coderef (required)
+
+The last argument must be a coderef. It receives no parameters; instead,
+lexical aliases are created for each hash key.
+
+=back
+
+=head3 Behaviour
+
+Inside the coderef:
+
+=over 4
+
+=item * Each hash key becomes a lexical variable
+
+    $foo   # alias to $hash{foo}
+    $bar   # alias to $hash{bar}
+
+=item * Assigning to a lexical updates the original hash
+
+    $foo = 42;   # sets $hash{foo} = 42
+
+=item * Reading the lexical reads from the hash
+
+=item * Aliases are removed when the coderef returns
+
+=back
+
+=head3 Error Handling
+
+C<with_hash> throws descriptive exceptions when:
+
+=over 4
+
+=item * No coderef is provided
+
+=item * A hash list has an odd number of elements
+
+=item * Extra arguments appear after the coderef
+
+=item * The hash argument is neither a hashref nor a valid key/value list
+
+=back
+
+These errors are intended to catch common mistakes early and make test
+failures easier to diagnose.
+
+=head3 Return Value
+
+Returns whatever the coderef returns.
+
+=head3 Examples
+
+Using a hashref:
+
+    my %config = ( host => 'localhost', port => 3306 );
+
+    with_hash \%config, sub {
+        say "$host:$port";   # prints "localhost:3306"
+        $port = 3307;        # updates %config
+    };
+
+Using a hash list:
+
+    with_hash debug => 1, retries => 3, sub {
+        $retries++;          # modifies the underlying hash
+    };
+
+With flags:
+
+    with_hash strict => \%opts, sub {
+        ...
+    };
+
+=head3 Notes
+
+C<with_hash> is intended for small, self-contained blocks where aliasing
+improves clarity. It is not a general-purpose replacement for normal hash
+access, nor does it attempt to provide full lexical scoping tricks beyond
+simple aliasing.
+
+=head3 with vs. with_hash
+
+Although C<with> and C<with_hash> share a similar calling style, they serve
+different purposes and operate at different levels of abstraction.
+
+=head4 C<with> — the low‑level aliasing engine
+
+C<with> is the core primitive. It expects:
+
+    with \%hash, sub { ... };
+
+It assumes that:
+
+=over 4
+
+=item * The first argument is already a valid hash reference
+
+=item * The last argument is a coderef
+
+=item * Any flags have already been parsed
+
+=item * The hash keys are suitable for use as lexical variable names
+
+=back
+
+C<with> performs no argument normalization. It simply creates lexical aliases
+for each key in the provided hash and executes the coderef. It is strict,
+minimal, and intended for internal use or advanced callers who want full
+control.
+
+=head4 C<with_hash> — the user‑friendly wrapper
+
+C<with_hash> is the public, ergonomic interface. It accepts a much more
+flexible argument style:
+
+    with_hash a => 1, b => 2, sub { ... };
+    with_hash \%hash, sub { ... };
+    with_hash strict => a => 1, b => 2, sub { ... };
+
+C<with_hash> is responsible for:
+
+=over 4
+
+=item * Parsing optional flags
+
+=item * Accepting either a hash reference OR a key/value list
+
+=item * Validating argument structure (even key/value pairs, final coderef, etc.)
+
+=item * Converting key/value lists into a hash reference
+
+=item * Producing clear, user‑facing error messages
+
+=item * Calling C<with> with a normalized hashref and the coderef
+
+=back
+
+In other words, C<with_hash> does all the DWIM work so that users can write
+clean, concise code without worrying about argument shape or validation.
+
+=head4 Summary
+
+=over 4
+
+=item * Use C<with_hash> in normal code.
+
+=item * Use C<with> only when you already have a validated hashref and want
+direct access to the aliasing mechanism.
+
+=back
+
+C<with_hash> is the safe, friendly API.  
+C<with> is the strict, low‑level engine that powers it.
+
+=cut
+
 sub with_hash {
 	my @args = @_;
 
@@ -236,7 +433,7 @@ sub with_hash {
 		# If the first arg is a HASHREF but there is more than one arg,
 		# this is invalid (extra junk).
 		if (@args >= 1 && ref($args[0]) eq 'HASH') {
-			die "with_hash(): hashref must be the only argument before coderef";
+			die 'with_hash(): hashref must be the only argument before coderef';
 		}
 
 		# Must be an even-sized hash list
