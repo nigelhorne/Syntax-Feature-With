@@ -2,6 +2,10 @@
 
 Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
 
+# VERSION
+
+Version 0.02
+
 # SYNOPSIS
 
     use Syntax::Feature::With qw(with with_hash);
@@ -40,8 +44,8 @@ Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
 # DESCRIPTION
 
 `with()` provides a simple, predictable way to temporarily alias hash
-keys into lexical variables inside a coderef. It is implemented using
-[PadWalker](https://metacpan.org/pod/PadWalker) and requires no XS, no parser hooks, and no syntax changes.
+keys into lexical variables inside a coderef.
+It is implemented using [PadWalker](https://metacpan.org/pod/PadWalker) and requires no XS, no parser hooks, and no syntax changes.
 
 # FEATURES
 

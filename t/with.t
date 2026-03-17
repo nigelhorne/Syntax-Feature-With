@@ -23,7 +23,7 @@ use Test::More;
 # lexicals that are closed over, not those declared inside
 # the coderef itself.
 
-use Syntax::Feature::With;
+use_ok('Syntax::Feature::With');
 
 # ----------------------------------------------------------------------
 # Basic aliasing: $a should alias $h{a}
@@ -145,9 +145,5 @@ use Syntax::Feature::With;
 
 	like($error, qr/coderef/, 'dies if second argument is not a coderef');
 }
-
-# ----------------------------------------------------------------------
-# Done
-# ----------------------------------------------------------------------
 
 done_testing();

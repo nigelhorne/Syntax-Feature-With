@@ -1,6 +1,6 @@
 Revision history for Syntax-Feature-With
 
-0.02
+0.02	Mon Mar 16 20:29:27 EDT 2026
 	Explain when to use with and when to use with_hash
 	Added -readonly, -rename, -only and -except
 

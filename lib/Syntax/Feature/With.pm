@@ -10,7 +10,7 @@ use PadWalker qw(closed_over set_closed_over);
 our @EXPORT_OK = qw(with with_hash);
 our @EXPORT = qw(with with_hash);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # Track nested with() depth for trace/debug output
 my $WITH_DEPTH = 0;
@@ -18,6 +18,10 @@ my $WITH_DEPTH = 0;
 =head1 NAME
 
 Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
+
+=head1 VERSION
+
+Version 0.02
 
 =head1 SYNOPSIS
 
@@ -57,8 +61,8 @@ Syntax::Feature::With - Simulate Pascal's "with" statement in Perl
 =head1 DESCRIPTION
 
 C<with()> provides a simple, predictable way to temporarily alias hash
-keys into lexical variables inside a coderef. It is implemented using
-L<PadWalker> and requires no XS, no parser hooks, and no syntax changes.
+keys into lexical variables inside a coderef.
+It is implemented using L<PadWalker> and requires no XS, no parser hooks, and no syntax changes.
 
 =head1 FEATURES
 
@@ -285,99 +289,94 @@ treats it as closed over without warnings.
 # with() — main entry point
 # ------------------------------------------------------------
 sub with {
-    my @args = @_;
+	my @args = @_;
 
-    my %opts = (
-        strict      => 0,
-        debug       => 0,
-        trace       => 0,
-        rename      => undef,
-        readonly    => 0,
-        strict_keys => 0,
-    );
+	my %opts = (
+		# strict	  => 0,
+		# debug	   => 0,
+		# trace	   => 0,
+		# rename	  => undef,
+		# readonly	=> 0,
+		# strict_keys => 0,
+	);
 
-    while (@args && $args[0] =~ /^-(strict|debug|trace|rename|readonly|strict_keys)$/) {
-        my $flag = shift @args;
+	while (@args && $args[0] =~ /^-(strict|debug|trace|rename|readonly|strict_keys)$/) {
+		my $flag = shift @args;
 
-        if ($flag eq '-rename') {
-            my $map = shift @args;
-            croak 'with(): -rename expects a hashref'
-                unless ref($map) eq 'HASH';
-            $opts{rename} = $map;
-            next;
-        }
+		if ($flag eq '-rename') {
+			my $map = shift @args;
+			croak 'with(): -rename expects a hashref' unless ref($map) eq 'HASH';
 
-        $flag =~ s/^-//;
-        $opts{$flag} = 1;
-    }
+			$opts{rename} = $map;
+			next;
+		}
 
-    $opts{debug} = 1 if $opts{trace};
+		$flag =~ s/^-//;
+		$opts{$flag} = 1;
+	}
 
-    my ($href, $code) = @args;
+	$opts{debug} = 1 if $opts{trace};
 
-    croak 'with(): first argument must be a hashref'
-        unless ref($href) eq 'HASH';
+	my ($href, $code) = @args;
 
-    croak 'with(): second argument must be a coderef'
-        unless ref($code) eq 'CODE';
+	croak 'with(): first argument must be a hashref' unless ref($href) eq 'HASH';
 
-    $WITH_DEPTH++;
-    warn "[with depth=$WITH_DEPTH] entering with()" if $opts{trace};
+	croak 'with(): second argument must be a coderef' unless ref($code) eq 'CODE';
 
-    my $closed = closed_over($code);
-    my %newpad = %$closed;
+	$WITH_DEPTH++;
+	warn "[with depth=$WITH_DEPTH] entering with()" if $opts{trace};
 
-    # --------------------------------------------------------
-    # Process each hash key (aliasing)
-    # --------------------------------------------------------
-KEY: for my $key (keys %$href) {
+	my $closed = closed_over($code);
+	my %newpad = %$closed;
 
-    # Determine lexical name (after rename)
-    my $lex = $opts{rename} && exists $opts{rename}{$key}
-            ? $opts{rename}{$key}
-            : $key;
+	# --------------------------------------------------------
+	# Process each hash key (aliasing)
+	# --------------------------------------------------------
+	KEY: for my $key (keys %$href) {
+		# Determine lexical name (after rename)
+		my $lex = $opts{rename} && exists $opts{rename}{$key} ? $opts{rename}{$key} : $key;
 
-    # Skip invalid identifiers
-    unless ($lex =~ /^[A-Za-z_]\w*$/) {
-        warn "Ignored: $key (invalid identifier as $lex)" if $opts{debug};
-        next KEY;
-    }
+		# Skip invalid identifiers
+		unless ($lex =~ /^[A-Za-z_]\w*$/) {
+			warn "Ignored: $key (invalid identifier as $lex)" if $opts{debug};
+			next KEY;
+		}
 
-    my $var = '$' . $lex;
+		my $var = '$' . $lex;
 
-    # strict_keys: every valid key must have a lexical
-    if ($opts{strict_keys} && !exists $newpad{$var}) {
-        die "with(): strict_keys mode: hash key '$key' has no lexical \$$lex";
-    }
+		# strict_keys: every valid key must have a lexical
+		if ($opts{strict_keys} && !exists $newpad{$var}) {
+			die "with(): strict_keys mode: hash key '$key' has no lexical \$$lex";
+		}
 
-    # strict: only keys that WOULD be aliased must have lexicals
-    unless (exists $newpad{$var}) {
-        if ($opts{strict}) {
-            die "with(): strict mode: lexical \$$lex not declared in outer scope";
-        }
-        warn "Ignored: $key (no lexical \$$lex declared)" if $opts{debug};
-        next KEY;
-    }
+		# strict: only keys that WOULD be aliased must have lexicals
+		unless (exists $newpad{$var}) {
+			if ($opts{strict}) {
+				die "with(): strict mode: lexical \$$lex not declared in outer scope";
+			}
+			warn "Ignored: $key (no lexical \$$lex declared)" if $opts{debug};
+			next KEY;
+		}
 
-    # Alias
-    if ($opts{readonly}) {
-        tie my $ro, 'Syntax::Feature::With::ReadonlyScalar', \$href->{$key};
-        $newpad{$var} = \$ro;
-    } else {
-        $newpad{$var} = \$href->{$key};
-    }
+		# Alias
+		if ($opts{readonly}) {
+			tie my $ro, 'Syntax::Feature::With::ReadonlyScalar', \$href->{$key};
+			$newpad{$var} = \$ro;
+		} else {
+			$newpad{$var} = \$href->{$key};
+		}
 
-    warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
-}
+		warn "Aliased: \$$lex => \%hash{$key}" if $opts{debug};
+	}
 
-    set_closed_over($code, \%newpad);
+	set_closed_over($code, \%newpad);
 
-    my $result = $code->();
+	my $result = $code->();
 
-    warn "[with depth=$WITH_DEPTH] leaving with()" if $opts{trace};
-    $WITH_DEPTH--;
+	warn "[with depth=$WITH_DEPTH] leaving with()" if $opts{trace};
+	$WITH_DEPTH--;
 
-    return $result;
+	return $result;
 }
 
 =head2 with_hash
@@ -831,8 +830,7 @@ sub with_hash {
 		my $value = shift @args;
 
 		if ($flag eq '-only' || $flag eq '-except') {
-			croak "with_hash(): $flag expects an arrayref"
-				unless ref($value) eq 'ARRAY';
+			croak "with_hash(): $flag expects an arrayref" unless ref($value) eq 'ARRAY';
 
 			$only   = $value if $flag eq '-only';
 			$except = $value if $flag eq '-except';
@@ -840,8 +838,7 @@ sub with_hash {
 		}
 
 		if ($flag eq '-rename') {
-			croak "with_hash(): -rename expects a hashref"
-				unless ref($value) eq 'HASH';
+			croak "with_hash(): -rename expects a hashref" unless ref($value) eq 'HASH';
 
 			push @flags, ($flag, $value);
 			next;
@@ -903,25 +900,25 @@ sub with_hash {
 	return $result;
 }
 
-{
-	package Syntax::Feature::With::ReadonlyScalar;
+1;
 
-	use Carp 'croak';
+package Syntax::Feature::With::ReadonlyScalar;
 
-	sub TIESCALAR {
-		my ($class, $ref) = @_;
-		return bless { ref => $ref }, $class;
-	}
+use Carp 'croak';
 
-	sub FETCH {
-		my $self = $_[0];
-		return ${ $self->{ref} };
-	}
+sub TIESCALAR {
+	my ($class, $ref) = @_;
+	return bless { ref => $ref }, $class;
+}
 
-	sub STORE {
-		my ($self, $value) = @_;
-		croak "with(): readonly variable cannot be modified";
-	}
+sub FETCH {
+	my $self = $_[0];
+	return ${ $self->{ref} };
+}
+
+sub STORE {
+	my ($self, $value) = @_;
+	croak 'with(): readonly variable cannot be modified';
 }
 
 1;
