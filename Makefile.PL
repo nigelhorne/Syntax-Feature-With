@@ -1,7 +1,6 @@
 use strict;
 use warnings;
 use ExtUtils::MakeMaker;
-use File::Spec;
 
 my $dist = {
 	COMPRESS => 'gzip -9f',	# Compress tarball using gzip
